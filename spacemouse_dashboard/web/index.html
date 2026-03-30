@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpaceMouse Dashboard</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --panel: #16213e;
+    --accent: #0f3460;
+    --highlight: #e94560;
+    --text: #eee;
+    --muted: #888;
+    --green: #4ecca3;
+    --blue: #00b4d8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: var(--panel);
+    border-bottom: 2px solid var(--accent);
+  }
+  header h1 { font-size: 1.3rem; font-weight: 600; }
+  #status {
+    font-size: 0.85rem;
+    padding: 4px 14px;
+    border-radius: 12px;
+    background: var(--highlight);
+  }
+  #status.connected { background: var(--green); color: #111; }
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 12px;
+    padding: 12px;
+    min-height: 0;
+  }
+  .panel {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel h2 {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+  #canvas3d { flex: 1; width: 100%; min-height: 0; }
+  .axis-group { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+  .axis-row { display: flex; align-items: center; gap: 8px; }
+  .axis-label { width: 28px; font-size: 0.8rem; font-weight: 600; text-align: right; flex-shrink: 0; }
+  .axis-bar-track {
+    flex: 1; height: 18px; background: var(--accent);
+    border-radius: 4px; position: relative; overflow: hidden;
+  }
+  .axis-bar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
+  .axis-bar-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; transition: left 0.05s, width 0.05s; }
+  .axis-value { width: 52px; font-size: 0.75rem; font-family: monospace; text-align: left; flex-shrink: 0; }
+  .btn-grid { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; flex: 1; align-content: center; }
+  .btn-indicator {
+    width: 56px; height: 56px; border-radius: 10px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; font-weight: 600; transition: background 0.1s;
+  }
+  .btn-indicator.pressed { background: var(--highlight); box-shadow: 0 0 16px rgba(233,69,96,0.5); }
+  .joy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: 1; align-content: center; }
+  .joy-cell { background: var(--accent); border-radius: 8px; padding: 10px 8px; text-align: center; }
+  .joy-cell .label { font-size: 0.7rem; color: var(--muted); }
+  .joy-cell .value { font-size: 1.1rem; font-family: monospace; margin-top: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>&#x1F5B1; SpaceMouse Dashboard</h1>
+  <span id="status">Disconnected</span>
+</header>
+<div class="main">
+  <div class="panel">
+    <h2>3D Preview</h2>
+    <canvas id="canvas3d"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Axes</h2>
+    <div class="axis-group" id="axisGroup"></div>
+  </div>
+  <div class="panel">
+    <h2>Buttons</h2>
+    <div class="btn-grid" id="btnGrid">
+      <div class="btn-indicator">L</div>
+      <div class="btn-indicator">R</div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Joy Raw Values</h2>
+    <div class="joy-grid" id="joyGrid"></div>
+  </div>
+</div>
+
+<script>
+// ─── Data polling (same port, /data endpoint) ─────────────────
+const statusEl = document.getElementById('status');
+let latestData = null;
+let connected = false;
+
+async function pollData() {
+  try {
+    const resp = await fetch('/data');
+    if (resp.ok) {
+      latestData = await resp.json();
+      if (!connected) {
+        connected = true;
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'connected';
+      }
+    }
+  } catch (e) {
+    if (connected) {
+      connected = false;
+      statusEl.textContent = 'Disconnected';
+      statusEl.className = '';
+    }
+  }
+}
+
+// Poll at ~30 Hz
+setInterval(pollData, 33);
+pollData();
+
+// ─── Axis bars setup ──────────────────────────────────────────
+const axisLabels = [
+  { key: 'lx', label: 'Lin X', color: 'var(--highlight)' },
+  { key: 'ly', label: 'Lin Y', color: 'var(--green)' },
+  { key: 'lz', label: 'Lin Z', color: 'var(--blue)' },
+  { key: 'ax', label: 'Ang X', color: 'var(--highlight)' },
+  { key: 'ay', label: 'Ang Y', color: 'var(--green)' },
+  { key: 'az', label: 'Ang Z', color: 'var(--blue)' },
+];
+
+const axisGroup = document.getElementById('axisGroup');
+const axisEls = {};
+axisLabels.forEach(a => {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+  row.innerHTML = `
+    <span class="axis-label">${a.label}</span>
+    <div class="axis-bar-track">
+      <div class="axis-bar-center"></div>
+      <div class="axis-bar-fill" style="background:${a.color};" id="bar_${a.key}"></div>
+    </div>
+    <span class="axis-value" id="val_${a.key}">0.000</span>`;
+  axisGroup.appendChild(row);
+  axisEls[a.key] = {
+    bar: row.querySelector(`#bar_${a.key}`),
+    val: row.querySelector(`#val_${a.key}`),
+  };
+});
+
+function updateAxes(twist) {
+  for (const a of axisLabels) {
+    const v = twist[a.key] || 0;
+    const pct = Math.min(Math.abs(v), 1) * 50;
+    const bar = axisEls[a.key].bar;
+    if (v >= 0) { bar.style.left = '50%'; bar.style.width = pct + '%'; }
+    else { bar.style.left = (50 - pct) + '%'; bar.style.width = pct + '%'; }
+    axisEls[a.key].val.textContent = v.toFixed(3);
+  }
+}
+
+// ─── Buttons ──────────────────────────────────────────────────
+function updateButtons(buttons) {
+  const grid = document.getElementById('btnGrid');
+  while (grid.children.length < buttons.length) {
+    const d = document.createElement('div');
+    d.className = 'btn-indicator';
+    d.textContent = 'B' + grid.children.length;
+    grid.appendChild(d);
+  }
+  for (let i = 0; i < buttons.length; i++) {
+    grid.children[i].classList.toggle('pressed', buttons[i] === 1);
+  }
+}
+
+// ─── Joy grid ─────────────────────────────────────────────────
+const joyLabels = ['vX', 'vY', 'vZ', 'wX', 'wY', 'wZ'];
+const joyGrid = document.getElementById('joyGrid');
+const joyCells = [];
+joyLabels.forEach((l, i) => {
+  const cell = document.createElement('div');
+  cell.className = 'joy-cell';
+  cell.innerHTML = `<div class="label">${l}</div><div class="value" id="joy_${i}">0.000</div>`;
+  joyGrid.appendChild(cell);
+  joyCells.push(cell.querySelector(`#joy_${i}`));
+});
+
+function updateJoy(axes) {
+  for (let i = 0; i < Math.min(axes.length, joyCells.length); i++) {
+    joyCells[i].textContent = axes[i].toFixed(3);
+  }
+}
+
+// ─── 3D Canvas ────────────────────────────────────────────────
+const canvas = document.getElementById('canvas3d');
+const ctx = canvas.getContext('2d');
+let rotX = 0, rotY = 0, rotZ = 0;
+let posX = 0, posY = 0, posZ = 0;
+const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 80;
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const h2 = canvas.parentElement.querySelector('h2');
+  const h2h = h2 ? h2.offsetHeight + 10 : 0;
+  canvas.width = rect.width - 32;
+  canvas.height = rect.height - 32 - h2h;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+function rotateX(p, a) { const c=Math.cos(a),s=Math.sin(a); return [p[0],p[1]*c-p[2]*s,p[1]*s+p[2]*c]; }
+function rotateY(p, a) { const c=Math.cos(a),s=Math.sin(a); return [p[0]*c+p[2]*s,p[1],-p[0]*s+p[2]*c]; }
+function rotateZ(p, a) { const c=Math.cos(a),s=Math.sin(a); return [p[0]*c-p[1]*s,p[0]*s+p[1]*c,p[2]]; }
+
+function project(p, cx, cy, scale) {
+  const d = 4, factor = d / (d + p[2] / scale);
+  return [cx + p[0] * factor, cy - p[1] * factor];
+}
+
+function drawCube(twist) {
+  const w = canvas.width, h = canvas.height;
+  if (w <= 0 || h <= 0) return;
+  ctx.clearRect(0, 0, w, h);
+  const cx = w/2, cy = h/2, scale = Math.min(w,h)*0.22, dt = 1/30;
+
+  rotX += (twist.ax||0)*ROT_SPEED*dt;
+  rotY += (twist.ay||0)*ROT_SPEED*dt;
+  rotZ += (twist.az||0)*ROT_SPEED*dt;
+  posX += (twist.lx||0)*POS_SPEED*dt; posY += (twist.ly||0)*POS_SPEED*dt; posZ += (twist.lz||0)*POS_SPEED*dt;
+  posX *= DECAY; posY *= DECAY; posZ *= DECAY;
+
+  const s = scale;
+  const verts = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]
+    .map(v => [v[0]*s, v[1]*s, v[2]*s]);
+
+  const transformed = verts.map(v => {
+    let p = rotateX(v, rotX); p = rotateY(p, rotY); p = rotateZ(p, rotZ);
+    p[0]+=posX; p[1]+=posY; p[2]+=posZ; return p;
+  });
+  const projected = transformed.map(p => project(p, cx, cy, scale));
+
+  const faces = [
+    {idx:[0,1,2,3],color:'rgba(233,69,96,0.55)'},
+    {idx:[4,5,6,7],color:'rgba(233,69,96,0.55)'},
+    {idx:[0,1,5,4],color:'rgba(78,204,163,0.55)'},
+    {idx:[2,3,7,6],color:'rgba(78,204,163,0.55)'},
+    {idx:[0,3,7,4],color:'rgba(0,180,216,0.55)'},
+    {idx:[1,2,6,5],color:'rgba(0,180,216,0.55)'},
+  ];
+  faces.sort((a,b) => a.idx.reduce((s,i)=>s+transformed[i][2],0) - b.idx.reduce((s,i)=>s+transformed[i][2],0));
+
+  faces.forEach(f => {
+    ctx.beginPath();
+    f.idx.forEach((i,j) => { if(j===0) ctx.moveTo(projected[i][0],projected[i][1]); else ctx.lineTo(projected[i][0],projected[i][1]); });
+    ctx.closePath(); ctx.fillStyle = f.color; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+
+  // Axes indicator
+  const axLen=30, axO=[20,h-20];
+  [[axLen,0,0],[0,axLen,0],[0,0,axLen]].forEach((a,i) => {
+    let p=rotateX(a,rotX); p=rotateY(p,rotY); p=rotateZ(p,rotZ);
+    ctx.beginPath(); ctx.moveTo(axO[0],axO[1]); ctx.lineTo(axO[0]+p[0],axO[1]-p[1]);
+    ctx.strokeStyle=['#e94560','#4ecca3','#00b4d8'][i]; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=ctx.strokeStyle; ctx.font='10px monospace';
+    ctx.fillText(['X','Y','Z'][i], axO[0]+p[0]+3, axO[1]-p[1]+3);
+  });
+}
+
+// ─── Animation loop ───────────────────────────────────────────
+function tick() {
+  const d = latestData;
+  if (d) {
+    updateAxes(d.twist);
+    updateButtons(d.joy.buttons || []);
+    updateJoy(d.joy.axes || []);
+    drawCube(d.twist);
+  } else {
+    drawCube({lx:0,ly:0,lz:0,ax:0,ay:0,az:0});
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

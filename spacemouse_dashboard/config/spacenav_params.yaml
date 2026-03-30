@@ -1,0 +1,21 @@
+# SpaceMouse parameters
+spacenav_node:
+  ros__parameters:
+    zero_when_static: true
+    static_count_threshold: 30
+    static_trans_deadband: 0.1
+    static_rot_deadband: 0.1
+    linear_scale:
+      x: 1.0
+      y: 1.0
+      z: 1.0
+    angular_scale:
+      x: 1.0
+      y: 1.0
+      z: 1.0
+
+# Dashboard parameters
+dashboard_node:
+  ros__parameters:
+    http_port: 8080
+    ws_port: 9090
