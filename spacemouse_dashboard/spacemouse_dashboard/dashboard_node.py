@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -8,6 +9,31 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist, Vector3
 from sensor_msgs.msg import Joy
 from ament_index_python.packages import get_package_share_directory
+
+
+class _HzTracker:
+    """Tracks message frequency for a topic."""
+
+    def __init__(self):
+        self._count = 0
+        self._hz = 0.0
+        self._last_reset = time.monotonic()
+        self._lock = threading.Lock()
+
+    def tick(self):
+        with self._lock:
+            self._count += 1
+            now = time.monotonic()
+            elapsed = now - self._last_reset
+            if elapsed >= 1.0:
+                self._hz = self._count / elapsed
+                self._count = 0
+                self._last_reset = now
+
+    @property
+    def hz(self):
+        with self._lock:
+            return round(self._hz, 1)
 
 
 class DashboardNode(Node):
@@ -31,6 +57,14 @@ class DashboardNode(Node):
         }
         self.data_lock = threading.Lock()
 
+        # Frequency trackers
+        self._hz = {
+            'spacenav/twist': _HzTracker(),
+            'spacenav/offset': _HzTracker(),
+            'spacenav/rot_offset': _HzTracker(),
+            'spacenav/joy': _HzTracker(),
+        }
+
         # Subscribers
         self.create_subscription(Twist, 'spacenav/twist', self._twist_cb, 10)
         self.create_subscription(Vector3, 'spacenav/offset', self._offset_cb, 10)
@@ -45,6 +79,7 @@ class DashboardNode(Node):
         )
 
     def _twist_cb(self, msg: Twist):
+        self._hz['spacenav/twist'].tick()
         with self.data_lock:
             self.data['twist'] = {
                 'lx': msg.linear.x, 'ly': msg.linear.y, 'lz': msg.linear.z,
@@ -52,14 +87,17 @@ class DashboardNode(Node):
             }
 
     def _offset_cb(self, msg: Vector3):
+        self._hz['spacenav/offset'].tick()
         with self.data_lock:
             self.data['offset'] = {'x': msg.x, 'y': msg.y, 'z': msg.z}
 
     def _rot_offset_cb(self, msg: Vector3):
+        self._hz['spacenav/rot_offset'].tick()
         with self.data_lock:
             self.data['rot_offset'] = {'x': msg.x, 'y': msg.y, 'z': msg.z}
 
     def _joy_cb(self, msg: Joy):
+        self._hz['spacenav/joy'].tick()
         with self.data_lock:
             self.data['joy'] = {
                 'axes': list(msg.axes),
@@ -75,7 +113,9 @@ class DashboardNode(Node):
                 # JSON data endpoint
                 if self.path == '/data':
                     with node_ref.data_lock:
-                        payload = json.dumps(node_ref.data).encode()
+                        resp = dict(node_ref.data)
+                    resp['hz'] = {t: tr.hz for t, tr in node_ref._hz.items()}
+                    payload = json.dumps(resp).encode()
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.send_header('Content-Length', str(len(payload)))
