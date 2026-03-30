@@ -229,9 +229,13 @@ const container = document.getElementById('three-container');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x16213e);
 
-// Camera
+// Camera — Z-up, looking at +X, tilted down ~30°
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-camera.position.set(4, 3, 5);
+camera.up.set(0, 0, 1); // Z is up
+// Position behind –X, slightly +Y (left), elevated in Z for 30° downward tilt
+const camDist = 7;
+const tiltAngle = 30 * Math.PI / 180;
+camera.position.set(-camDist * Math.cos(tiltAngle), 1.5, camDist * Math.sin(tiltAngle));
 camera.lookAt(0, 0, 0);
 
 // Renderer
@@ -253,23 +257,23 @@ controls.target.set(0, 0, 0);
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 scene.add(new THREE.HemisphereLight(0xb0d4f1, 0x404040, 0.5));
 const d1 = new THREE.DirectionalLight(0xffffff, 0.9);
-d1.position.set(5, 8, 6); d1.castShadow = true;
+d1.position.set(5, 3, 8); d1.castShadow = true;
 d1.shadow.mapSize.set(1024, 1024); scene.add(d1);
 const d2 = new THREE.DirectionalLight(0xffffff, 0.4);
-d2.position.set(-3, -2, -4); scene.add(d2);
+d2.position.set(-3, -4, -1); scene.add(d2);
 
-// Grid
+// Grid on XY plane (Z-up)
 const grid = new THREE.GridHelper(10, 10, 0x444466, 0x333355);
-grid.position.y = -1.8;
+grid.rotation.x = Math.PI / 2; // rotate from Y-up to Z-up
+grid.position.z = -1.8;
 scene.add(grid);
 
-// Ground shadow plane
+// Ground shadow plane on XY (Z-up)
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(10, 10),
   new THREE.ShadowMaterial({ opacity: 0.25 })
 );
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -1.8;
+ground.position.z = -1.8;
 ground.receiveShadow = true;
 scene.add(ground);
 
