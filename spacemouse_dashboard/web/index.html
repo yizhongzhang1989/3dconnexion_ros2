@@ -221,7 +221,7 @@ function updateJoy(axes) {
 <script type="module">
 // ─── Three.js 3D Preview (self-contained, no CDN) ────────────
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 
 const container = document.getElementById('three-container');
 
@@ -241,12 +241,13 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
-// OrbitControls
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.1;
+// TrackballControls (arcball-style rotation)
+const controls = new TrackballControls(camera, renderer.domElement);
+controls.rotateSpeed = 3.0;
+controls.zoomSpeed = 1.2;
+controls.panSpeed = 0.8;
+controls.dynamicDampingFactor = 0.15;
 controls.target.set(0, 0, 0);
-controls.update();
 
 // Lighting
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
@@ -316,12 +317,13 @@ function resize() {
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  controls.handleResize();
 }
 window.addEventListener('resize', resize);
 resize();
 
 // State
-let tRotX = 0, tRotY = 0, tRotZ = 0;
+const cubeQuat = new THREE.Quaternion(); // accumulated rotation
 let tPosX = 0, tPosY = 0, tPosZ = 0;
 const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 2.0;
 
@@ -334,16 +336,21 @@ const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 2.0;
   const twist = d ? d.twist : { lx:0, ly:0, lz:0, ax:0, ay:0, az:0 };
   const dt = 1 / 30;
 
-  tRotX += (twist.ax || 0) * ROT_SPEED * dt;
-  tRotY += (twist.ay || 0) * ROT_SPEED * dt;
-  tRotZ += (twist.az || 0) * ROT_SPEED * dt;
+  // Build incremental rotation quaternion from current angular input
+  const dax = (twist.ax || 0) * ROT_SPEED * dt;
+  const day = (twist.ay || 0) * ROT_SPEED * dt;
+  const daz = (twist.az || 0) * ROT_SPEED * dt;
+  const deltaQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(dax, day, daz, 'XYZ'));
+  // Apply incremental rotation to accumulated rotation
+  cubeQuat.multiplyQuaternions(deltaQuat, cubeQuat);
+  cubeQuat.normalize();
 
   tPosX += (twist.lx || 0) * POS_SPEED * dt;
   tPosY += (twist.ly || 0) * POS_SPEED * dt;
   tPosZ += (twist.lz || 0) * POS_SPEED * dt;
   tPosX *= DECAY; tPosY *= DECAY; tPosZ *= DECAY;
 
-  cube.rotation.set(tRotX, tRotY, tRotZ);
+  cube.quaternion.copy(cubeQuat);
   cubeGroup.position.set(tPosX, tPosY, tPosZ);
 
   // Update 2D UI
