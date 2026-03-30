@@ -11,6 +11,7 @@ def generate_launch_description():
             name='spacenav_node',
             output='screen',
             parameters=[{
+                'full_scale': 350.0,
                 'zero_when_static': True,
                 'static_count_threshold': 30,
                 'static_trans_deadband': 0.1,

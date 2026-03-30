@@ -4,6 +4,12 @@ ROS2 package that reads 3Dconnexion SpaceMouse data and provides a real-time web
 
 Can be used **standalone** or as a **git submodule** inside an existing workspace.
 
+## Coordinate System
+
+<img src="doc/spacemouse_coordinate.jpg" alt="SpaceMouse Coordinate System" width="400">
+
+> **Tip:** For the most intuitive control, align the coordinate system of your control target (e.g. robot end-effector) with the SpaceMouse. When the axes match, pushing the SpaceMouse forward moves the target forward, and rotating it maps directly to the target's rotation — matching natural human expectation.
+
 ## Features
 
 - Includes the `spacenav` ROS2 driver — no extra repos to clone

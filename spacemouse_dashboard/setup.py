@@ -4,6 +4,19 @@ import os
 
 package_name = 'spacemouse_dashboard'
 
+
+def _web_data_files():
+    """Recursively collect all files under web/ for installation."""
+    entries = []
+    for dirpath, _, filenames in os.walk('web'):
+        if not filenames:
+            continue
+        install_dir = os.path.join('share', package_name, dirpath)
+        files = [os.path.join(dirpath, f) for f in filenames]
+        entries.append((install_dir, files))
+    return entries
+
+
 setup(
     name=package_name,
     version='1.0.0',
@@ -16,9 +29,7 @@ setup(
             glob('launch/*.py')),
         (os.path.join('share', package_name, 'config'),
             glob('config/*.yaml')),
-        (os.path.join('share', package_name, 'web'),
-            glob('web/*')),
-    ],
+    ] + _web_data_files(),
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Yizhong Zhang',
