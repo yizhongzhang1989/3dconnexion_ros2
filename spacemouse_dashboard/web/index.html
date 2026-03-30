@@ -66,7 +66,7 @@
     margin-bottom: 10px;
     flex-shrink: 0;
   }
-  #canvas3d { flex: 1; width: 100%; min-height: 0; }
+  #three-container { flex: 1; width: 100%; min-height: 0; position: relative; border-radius: 6px; overflow: hidden; }
   .axis-group { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
   .axis-row { display: flex; align-items: center; gap: 8px; }
   .axis-label { width: 28px; font-size: 0.8rem; font-weight: 600; text-align: right; flex-shrink: 0; }
@@ -89,6 +89,14 @@
   .joy-cell .label { font-size: 0.7rem; color: var(--muted); }
   .joy-cell .value { font-size: 1.1rem; font-family: monospace; margin-top: 2px; }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/"
+  }
+}
+</script>
 </head>
 <body>
 <header>
@@ -98,7 +106,7 @@
 <div class="main">
   <div class="panel">
     <h2>3D Preview</h2>
-    <canvas id="canvas3d"></canvas>
+    <div id="three-container"></div>
   </div>
   <div class="panel">
     <h2>Axes</h2>
@@ -120,14 +128,14 @@
 <script>
 // ─── Data polling (same port, /data endpoint) ─────────────────
 const statusEl = document.getElementById('status');
-let latestData = null;
+window.latestData = null;
 let connected = false;
 
 async function pollData() {
   try {
     const resp = await fetch('/data');
     if (resp.ok) {
-      latestData = await resp.json();
+      window.latestData = await resp.json();
       if (!connected) {
         connected = true;
         statusEl.textContent = 'Connected';
@@ -142,8 +150,6 @@ async function pollData() {
     }
   }
 }
-
-// Poll at ~30 Hz
 setInterval(pollData, 33);
 pollData();
 
@@ -156,7 +162,6 @@ const axisLabels = [
   { key: 'ay', label: 'Ang Y', color: 'var(--green)' },
   { key: 'az', label: 'Ang Z', color: 'var(--blue)' },
 ];
-
 const axisGroup = document.getElementById('axisGroup');
 const axisEls = {};
 axisLabels.forEach(a => {
@@ -170,12 +175,8 @@ axisLabels.forEach(a => {
     </div>
     <span class="axis-value" id="val_${a.key}">0.000</span>`;
   axisGroup.appendChild(row);
-  axisEls[a.key] = {
-    bar: row.querySelector(`#bar_${a.key}`),
-    val: row.querySelector(`#val_${a.key}`),
-  };
+  axisEls[a.key] = { bar: row.querySelector(`#bar_${a.key}`), val: row.querySelector(`#val_${a.key}`) };
 });
-
 function updateAxes(twist) {
   for (const a of axisLabels) {
     const v = twist[a.key] || 0;
@@ -196,9 +197,8 @@ function updateButtons(buttons) {
     d.textContent = 'B' + grid.children.length;
     grid.appendChild(d);
   }
-  for (let i = 0; i < buttons.length; i++) {
+  for (let i = 0; i < buttons.length; i++)
     grid.children[i].classList.toggle('pressed', buttons[i] === 1);
-  }
 }
 
 // ─── Joy grid ─────────────────────────────────────────────────
@@ -212,103 +212,150 @@ joyLabels.forEach((l, i) => {
   joyGrid.appendChild(cell);
   joyCells.push(cell.querySelector(`#joy_${i}`));
 });
-
 function updateJoy(axes) {
-  for (let i = 0; i < Math.min(axes.length, joyCells.length); i++) {
+  for (let i = 0; i < Math.min(axes.length, joyCells.length); i++)
     joyCells[i].textContent = axes[i].toFixed(3);
-  }
 }
+</script>
 
-// ─── 3D Canvas ────────────────────────────────────────────────
-const canvas = document.getElementById('canvas3d');
-const ctx = canvas.getContext('2d');
-let rotX = 0, rotY = 0, rotZ = 0;
-let posX = 0, posY = 0, posZ = 0;
-const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 80;
+<script type="module">
+// ─── Three.js 3D Preview (self-contained, no CDN) ────────────
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-function resizeCanvas() {
-  const rect = canvas.parentElement.getBoundingClientRect();
-  const h2 = canvas.parentElement.querySelector('h2');
-  const h2h = h2 ? h2.offsetHeight + 10 : 0;
-  canvas.width = rect.width - 32;
-  canvas.height = rect.height - 32 - h2h;
-}
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
+const container = document.getElementById('three-container');
 
-function rotateX(p, a) { const c=Math.cos(a),s=Math.sin(a); return [p[0],p[1]*c-p[2]*s,p[1]*s+p[2]*c]; }
-function rotateY(p, a) { const c=Math.cos(a),s=Math.sin(a); return [p[0]*c+p[2]*s,p[1],-p[0]*s+p[2]*c]; }
-function rotateZ(p, a) { const c=Math.cos(a),s=Math.sin(a); return [p[0]*c-p[1]*s,p[0]*s+p[1]*c,p[2]]; }
+// Scene
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16213e);
 
-function project(p, cx, cy, scale) {
-  const d = 4, factor = d / (d + p[2] / scale);
-  return [cx + p[0] * factor, cy - p[1] * factor];
-}
+// Camera
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+camera.position.set(4, 3, 5);
+camera.lookAt(0, 0, 0);
 
-function drawCube(twist) {
-  const w = canvas.width, h = canvas.height;
+// Renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+// OrbitControls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+controls.target.set(0, 0, 0);
+controls.update();
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+scene.add(new THREE.HemisphereLight(0xb0d4f1, 0x404040, 0.5));
+const d1 = new THREE.DirectionalLight(0xffffff, 0.9);
+d1.position.set(5, 8, 6); d1.castShadow = true;
+d1.shadow.mapSize.set(1024, 1024); scene.add(d1);
+const d2 = new THREE.DirectionalLight(0xffffff, 0.4);
+d2.position.set(-3, -2, -4); scene.add(d2);
+
+// Grid
+const grid = new THREE.GridHelper(10, 10, 0x444466, 0x333355);
+grid.position.y = -1.8;
+scene.add(grid);
+
+// Ground shadow plane
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(10, 10),
+  new THREE.ShadowMaterial({ opacity: 0.25 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -1.8;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Cube group
+const cubeGroup = new THREE.Group();
+scene.add(cubeGroup);
+
+// Cube
+const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+const materials = [
+  new THREE.MeshPhysicalMaterial({ color: 0xe94560, metalness: 0.2, roughness: 0.4 }),
+  new THREE.MeshPhysicalMaterial({ color: 0xc73a52, metalness: 0.2, roughness: 0.4 }),
+  new THREE.MeshPhysicalMaterial({ color: 0x4ecca3, metalness: 0.2, roughness: 0.4 }),
+  new THREE.MeshPhysicalMaterial({ color: 0x3db88e, metalness: 0.2, roughness: 0.4 }),
+  new THREE.MeshPhysicalMaterial({ color: 0x00b4d8, metalness: 0.2, roughness: 0.4 }),
+  new THREE.MeshPhysicalMaterial({ color: 0x0096b5, metalness: 0.2, roughness: 0.4 }),
+];
+const cube = new THREE.Mesh(geo, materials);
+cube.castShadow = true;
+cube.receiveShadow = true;
+
+// Wireframe edges
+const edges = new THREE.LineSegments(
+  new THREE.EdgesGeometry(geo),
+  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 })
+);
+cube.add(edges);
+cubeGroup.add(cube);
+
+// Axes arrows on the cube
+const axLen = 1.6;
+const axColors = [0xe94560, 0x4ecca3, 0x00b4d8];
+[new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)].forEach((dir, i) => {
+  const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0,0,0), axLen, axColors[i], 0.22, 0.13);
+  cubeGroup.add(arrow);
+});
+
+// Scene axes helper (small, at origin)
+scene.add(new THREE.AxesHelper(0.5));
+
+// Resize
+function resize() {
+  const w = container.clientWidth, h = container.clientHeight;
   if (w <= 0 || h <= 0) return;
-  ctx.clearRect(0, 0, w, h);
-  const cx = w/2, cy = h/2, scale = Math.min(w,h)*0.22, dt = 1/30;
-
-  rotX += (twist.ax||0)*ROT_SPEED*dt;
-  rotY += (twist.ay||0)*ROT_SPEED*dt;
-  rotZ += (twist.az||0)*ROT_SPEED*dt;
-  posX += (twist.lx||0)*POS_SPEED*dt; posY += (twist.ly||0)*POS_SPEED*dt; posZ += (twist.lz||0)*POS_SPEED*dt;
-  posX *= DECAY; posY *= DECAY; posZ *= DECAY;
-
-  const s = scale;
-  const verts = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]
-    .map(v => [v[0]*s, v[1]*s, v[2]*s]);
-
-  const transformed = verts.map(v => {
-    let p = rotateX(v, rotX); p = rotateY(p, rotY); p = rotateZ(p, rotZ);
-    p[0]+=posX; p[1]+=posY; p[2]+=posZ; return p;
-  });
-  const projected = transformed.map(p => project(p, cx, cy, scale));
-
-  const faces = [
-    {idx:[0,1,2,3],color:'rgba(233,69,96,0.55)'},
-    {idx:[4,5,6,7],color:'rgba(233,69,96,0.55)'},
-    {idx:[0,1,5,4],color:'rgba(78,204,163,0.55)'},
-    {idx:[2,3,7,6],color:'rgba(78,204,163,0.55)'},
-    {idx:[0,3,7,4],color:'rgba(0,180,216,0.55)'},
-    {idx:[1,2,6,5],color:'rgba(0,180,216,0.55)'},
-  ];
-  faces.sort((a,b) => a.idx.reduce((s,i)=>s+transformed[i][2],0) - b.idx.reduce((s,i)=>s+transformed[i][2],0));
-
-  faces.forEach(f => {
-    ctx.beginPath();
-    f.idx.forEach((i,j) => { if(j===0) ctx.moveTo(projected[i][0],projected[i][1]); else ctx.lineTo(projected[i][0],projected[i][1]); });
-    ctx.closePath(); ctx.fillStyle = f.color; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
-  });
-
-  // Axes indicator
-  const axLen=30, axO=[20,h-20];
-  [[axLen,0,0],[0,axLen,0],[0,0,axLen]].forEach((a,i) => {
-    let p=rotateX(a,rotX); p=rotateY(p,rotY); p=rotateZ(p,rotZ);
-    ctx.beginPath(); ctx.moveTo(axO[0],axO[1]); ctx.lineTo(axO[0]+p[0],axO[1]-p[1]);
-    ctx.strokeStyle=['#e94560','#4ecca3','#00b4d8'][i]; ctx.lineWidth=2; ctx.stroke();
-    ctx.fillStyle=ctx.strokeStyle; ctx.font='10px monospace';
-    ctx.fillText(['X','Y','Z'][i], axO[0]+p[0]+3, axO[1]-p[1]+3);
-  });
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
 }
+window.addEventListener('resize', resize);
+resize();
 
-// ─── Animation loop ───────────────────────────────────────────
-function tick() {
-  const d = latestData;
+// State
+let tRotX = 0, tRotY = 0, tRotZ = 0;
+let tPosX = 0, tPosY = 0, tPosZ = 0;
+const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 2.0;
+
+// Render + animation loop
+(function animate() {
+  requestAnimationFrame(animate);
+
+  // Read latestData from the global scope (set by polling script)
+  const d = window.latestData;
+  const twist = d ? d.twist : { lx:0, ly:0, lz:0, ax:0, ay:0, az:0 };
+  const dt = 1 / 30;
+
+  tRotX += (twist.ax || 0) * ROT_SPEED * dt;
+  tRotY += (twist.ay || 0) * ROT_SPEED * dt;
+  tRotZ += (twist.az || 0) * ROT_SPEED * dt;
+
+  tPosX += (twist.lx || 0) * POS_SPEED * dt;
+  tPosY += (twist.ly || 0) * POS_SPEED * dt;
+  tPosZ += (twist.lz || 0) * POS_SPEED * dt;
+  tPosX *= DECAY; tPosY *= DECAY; tPosZ *= DECAY;
+
+  cube.rotation.set(tRotX, tRotY, tRotZ);
+  cubeGroup.position.set(tPosX, tPosY, tPosZ);
+
+  // Update 2D UI
   if (d) {
     updateAxes(d.twist);
     updateButtons(d.joy.buttons || []);
     updateJoy(d.joy.axes || []);
-    drawCube(d.twist);
-  } else {
-    drawCube({lx:0,ly:0,lz:0,ax:0,ay:0,az:0});
   }
-  requestAnimationFrame(tick);
-}
-requestAnimationFrame(tick);
+
+  controls.update();
+  renderer.render(scene, camera);
+})();
 </script>
 </body>
 </html>
