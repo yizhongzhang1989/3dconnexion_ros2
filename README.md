@@ -57,7 +57,7 @@ source install/setup.bash
 ### Launch everything (SpaceMouse + Dashboard)
 
 ```bash
-ros2 launch spacemouse_dashboard spacemouse_dashboard.launch.py
+ros2 launch spacemouse spacemouse.launch.py dashboard_port:=8080
 ```
 
 Then open **http://localhost:8080** in your browser.
@@ -65,21 +65,22 @@ Then open **http://localhost:8080** in your browser.
 ### Launch individually
 
 ```bash
-# SpaceMouse driver only
-ros2 launch spacemouse_dashboard spacemouse.launch.py
+# SpaceMouse driver only (no dashboard)
+ros2 launch spacemouse spacemouse.launch.py
 
 # Dashboard only (spacenav must already be running)
-ros2 launch spacemouse_dashboard dashboard.launch.py
+ros2 launch spacemouse dashboard.launch.py
 ```
 
 ### Launch arguments
 
-| Argument    | Default | Description                      |
-|-------------|---------|----------------------------------|
-| `http_port` | `8080`  | HTTP port for the web UI + data  |
+| Argument         | Default | Description                                              |
+|------------------|---------|----------------------------------------------------------|
+| `dashboard_port` | (empty) | `spacemouse.launch.py`: if set (e.g. `8080`), also start the dashboard on this port. Empty = driver only. |
+| `http_port`      | `8080`  | `dashboard.launch.py`: HTTP port for the web UI + data.  |
 
 ```bash
-ros2 launch spacemouse_dashboard spacemouse_dashboard.launch.py http_port:=3000
+ros2 launch spacemouse spacemouse.launch.py dashboard_port:=3000
 ```
 
 ## Topics
@@ -105,19 +106,18 @@ Subscribed by the dashboard (published by the `spacenav` driver):
 │   ├── launch/classic-launch.py
 │   ├── CMakeLists.txt
 │   └── package.xml
-├── spacemouse_dashboard/              # Dashboard ROS2 package
+├── spacemouse/                        # SpaceMouse driver-launch + dashboard package
 │   ├── config/
 │   │   └── spacenav_params.yaml
 │   ├── launch/
-│   │   ├── spacemouse.launch.py
-│   │   ├── dashboard.launch.py
-│   │   └── spacemouse_dashboard.launch.py
-│   ├── spacemouse_dashboard/
+│   │   ├── spacemouse.launch.py       # driver (+ dashboard if dashboard_port set)
+│   │   └── dashboard.launch.py        # dashboard only
+│   ├── spacemouse/
 │   │   ├── __init__.py
 │   │   └── dashboard_node.py
 │   ├── web/
 │   │   └── index.html
-│   ├── resource/spacemouse_dashboard
+│   ├── resource/spacemouse
 │   ├── package.xml
 │   ├── setup.py
 │   └── setup.cfg

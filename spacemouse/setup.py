@@ -2,7 +2,7 @@ from setuptools import setup
 from glob import glob
 import os
 
-package_name = 'spacemouse_dashboard'
+package_name = 'spacemouse'
 
 
 def _web_data_files():
@@ -39,7 +39,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'dashboard_node = spacemouse_dashboard.dashboard_node:main',
+            'dashboard_node = spacemouse.dashboard_node:main',
         ],
     },
 )

@@ -10,7 +10,7 @@ def generate_launch_description():
         DeclareLaunchArgument('http_port', default_value='8080',
                               description='HTTP server port for the web UI'),
         Node(
-            package='spacemouse_dashboard',
+            package='spacemouse',
             executable='dashboard_node',
             name='dashboard_node',
             output='screen',

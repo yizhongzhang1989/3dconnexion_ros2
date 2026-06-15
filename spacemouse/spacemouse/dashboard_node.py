@@ -38,13 +38,13 @@ class _HzTracker:
 
 class DashboardNode(Node):
     def __init__(self):
-        super().__init__('spacemouse_dashboard')
+        super().__init__('dashboard_node')
 
         self.declare_parameter('http_port', 8080)
         self._http_port = int(self.get_parameter('http_port').value)
 
         self._web_dir = os.path.join(
-            get_package_share_directory('spacemouse_dashboard'), 'web'
+            get_package_share_directory('spacemouse'), 'web'
         )
 
         # Shared data (read by HTTP handler, written by ROS callbacks)
