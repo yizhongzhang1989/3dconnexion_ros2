@@ -2,7 +2,7 @@ import json
 import os
 import time
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 import rclpy
 from rclpy.node import Node
@@ -109,6 +109,10 @@ class DashboardNode(Node):
         web_dir = self._web_dir
 
         class Handler(BaseHTTPRequestHandler):
+            # Drop idle/half-open connections (e.g. browser pre-connect sockets
+            # that never send a request) so they can't pin a worker thread.
+            timeout = 10
+
             def do_GET(self):
                 # JSON data endpoint
                 if self.path == '/data':
@@ -172,7 +176,11 @@ class DashboardNode(Node):
                 # Suppress per-request logs to keep terminal clean
                 pass
 
-        server = HTTPServer(('0.0.0.0', self._http_port), Handler)
+        # Threading server: each connection is handled in its own thread, so a
+        # single slow/idle client cannot block the accept loop (which previously
+        # froze the whole dashboard for both local and remote browsers).
+        server = ThreadingHTTPServer(('0.0.0.0', self._http_port), Handler)
+        server.daemon_threads = True
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
 
