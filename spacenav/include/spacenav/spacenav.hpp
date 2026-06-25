@@ -78,6 +78,7 @@ private:
   double static_trans_deadband;
   double static_rot_deadband;
   bool use_twist_stamped;
+  int num_buttons;
 
   spnav_event sev;
   bool joy_stale = false;
@@ -90,7 +91,9 @@ private:
   double normed_wy = 0;
   double normed_wz = 0;
 
-  // We'll resize dynamically to support spacenav devices with more buttons.
+  // Pre-sized to num_buttons in the constructor so every Joy message reports a
+  // fixed-width buttons array (SpaceMouse Pro = 15). Still grows dynamically if
+  // a device ever reports an even higher button index.
   std::vector<int> joystick_buttons = {0, 0};
 };
 

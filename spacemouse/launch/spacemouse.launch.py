@@ -38,6 +38,7 @@ def generate_launch_description():
                 'static_count_threshold': 30,
                 'static_trans_deadband': 0.1,
                 'static_rot_deadband': 0.1,
+                'num_buttons': 15,
             }],
         ),
 

@@ -5,6 +5,9 @@ spacenav_node:
     static_count_threshold: 30
     static_trans_deadband: 0.1
     static_rot_deadband: 0.1
+    # SpaceMouse Pro has 15 buttons (indices 0-14). Pre-sizing keeps the
+    # spacenav/joy buttons array fixed-width with a stable index->button map.
+    num_buttons: 15
     linear_scale:
       x: 1.0
       y: 1.0

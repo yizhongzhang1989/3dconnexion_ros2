@@ -56,6 +56,7 @@
 #define SPACENAV_STATIC_TRANS_DEADBAND_PARAM_S "static_trans_deadband"
 #define SPACENAV_STATIC_ROT_DEADBAND_PARAM_S "static_rot_deadband"
 #define SPACENAV_USE_TWIST_STAMPED_PARAM_S "use_twist_stamped"
+#define SPACENAV_NUM_BUTTONS_PARAM_S "num_buttons"
 
 using namespace std::chrono_literals;
 
@@ -92,6 +93,15 @@ Spacenav::Spacenav(const rclcpp::NodeOptions & options)
   this->declare_parameter<double>(SPACENAV_STATIC_TRANS_DEADBAND_PARAM_S, 0.1);
   this->declare_parameter<double>(SPACENAV_STATIC_ROT_DEADBAND_PARAM_S, 0.1);
   use_twist_stamped = this->declare_parameter<bool>(SPACENAV_USE_TWIST_STAMPED_PARAM_S, false);
+
+  // Number of buttons to always report in the Joy message. The SpaceMouse Pro
+  // has 15 buttons (indices 0-14). Pre-sizing the buttons vector guarantees a
+  // fixed-width, stable index->button mapping on every message, instead of the
+  // array growing only as higher-indexed buttons get pressed for the first time.
+  num_buttons = this->declare_parameter<int>(SPACENAV_NUM_BUTTONS_PARAM_S, 15);
+  if (num_buttons > static_cast<int>(joystick_buttons.size())) {
+    joystick_buttons.resize(num_buttons, 0);
+  }
 
   auto param_change_callback = [this](
     std::vector<rclcpp::Parameter> parameters) {
