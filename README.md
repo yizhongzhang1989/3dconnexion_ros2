@@ -26,6 +26,26 @@ Can be used **standalone** or as a **git submodule** inside an existing workspac
 sudo apt install spacenavd libspnav-dev
 ```
 
+> **SpaceMouse Pro buttons need `spacenavd` ≥ 1.1** (verified with **1.3.1**).
+> The Ubuntu-packaged `spacenavd` **0.7.1** (22.04 Jammy) lacks the SpaceMouse
+> Pro button remap (`bnhack_smpro`), so it reports the wrong button indices
+> (e.g. pressing `1` lights up `Alt`). The **axes are unaffected**, and this is
+> **not** a virtual-machine issue — it is purely the daemon version. Build a
+> current `spacenavd` from source:
+>
+> ```bash
+> sudo apt remove --purge spacenavd                       # remove broken 0.7.1 (keeps libspnav)
+> sudo apt install build-essential git libx11-dev libxi-dev
+> git clone --branch v1.3.1 https://github.com/FreeSpacenav/spacenavd.git
+> cd spacenavd && ./configure && make
+> sudo make install                                       # -> /usr/local/bin/spacenavd
+> sudo cp contrib/systemd/spacenavd.service /etc/systemd/system/
+> sudo systemctl daemon-reload && sudo systemctl enable --now spacenavd
+> ```
+>
+> Verify with `tail /var/log/spnavd.log` — a working daemon logs
+> `reports 15 buttons before disjointed button remapping`.
+
 ## Installation
 
 ### Standalone
@@ -131,10 +151,12 @@ in the middle. Each named key lights up when it is pressed.
 > - The fixed width is set by the `spacenav_node` parameter `num_buttons`
 >   (default `15`). The array still grows automatically if a device ever reports
 >   a higher index.
-> - The contiguous `0–14` mapping above is produced by `spacenavd` for the
->   SpaceMouse Pro. The Ubuntu-packaged `spacenavd` 0.7.1 mis-maps the Pro's
->   buttons (sparse indices); build a recent `spacenavd` (≥ 1.x) from source if
->   your buttons don't line up with the table.
+> - The contiguous `0–14` mapping above is produced by `spacenavd` **≥ 1.1**
+>   (verified with **1.3.1**) for the SpaceMouse Pro, via its `bnhack_smpro`
+>   remap. The Ubuntu-packaged `spacenavd` **0.7.1** lacks this and mis-maps the
+>   Pro's buttons (sparse indices, e.g. `1` shows as `Alt`) — install a current
+>   `spacenavd` (see [Prerequisites](#prerequisites)) if your buttons don't line
+>   up with the table.
 
 ### Known limitation — multi-button ghosting
 
