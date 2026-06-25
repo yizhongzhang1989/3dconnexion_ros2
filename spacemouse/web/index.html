@@ -276,11 +276,11 @@ function smpKey(i, extra) {
   // Right of the cap: QuickView 2x2 with the rotation toggle in the center.
   const q = document.getElementById('smp-quick');
   const place = (el, r, c) => { el.style.gridRow = r; el.style.gridColumn = c; q.append(el); };
-  place(smpKey(6), 1, 1);          // T  (top-left)
-  place(smpKey(7), 1, 3);          // R  (top-right)
+  place(smpKey(9), 1, 1);          // Roll (top-left)
+  place(smpKey(6), 1, 3);          // T  (top-right)
   place(smpKey(10, 'rot'), 2, 2);  // rotation toggle (center)
   place(smpKey(8), 3, 1);          // F  (bottom-left)
-  place(smpKey(9), 3, 3);          // Roll (bottom-right)
+  place(smpKey(7), 3, 3);          // R  (bottom-right)
   // Fit below the QuickView cluster.
   document.getElementById('smp-fit').append(smpKey(5));
 })();
