@@ -381,6 +381,15 @@ class DashboardNode(Node):
                 self.end_headers()
                 self.wfile.write(out)
 
+            def handle_one_request(self):
+                # A browser that disconnects mid-response (e.g. refresh while a
+                # /data poll is in flight) raises BrokenPipeError/ConnectionReset;
+                # swallow it quietly instead of dumping a traceback.
+                try:
+                    super().handle_one_request()
+                except (BrokenPipeError, ConnectionResetError):
+                    self.close_connection = True
+
             def log_message(self, format, *args):
                 # Suppress per-request logs to keep terminal clean
                 pass
