@@ -164,6 +164,7 @@ class DashboardNode(Node):
                 self.send_response(200)
                 self.send_header('Content-Type', ct)
                 self.send_header('Content-Length', str(len(content)))
+                self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
                 self.end_headers()
                 self.wfile.write(content)
 

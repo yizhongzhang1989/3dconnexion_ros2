@@ -84,13 +84,35 @@
   .axis-bar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
   .axis-bar-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; transition: left 0.05s, width 0.05s; }
   .axis-value { width: 52px; font-size: 0.75rem; font-family: monospace; text-align: left; flex-shrink: 0; }
-  .btn-grid { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; flex: 1; align-content: center; }
-  .btn-indicator {
-    width: 56px; height: 56px; border-radius: 10px; background: var(--accent);
+  /* SpaceMouse Pro button pad — radial layout matching the physical device */
+  .smp-device { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 0; }
+  .smp-fnrow { display: flex; gap: 54px; justify-content: center; }
+  .smp-fnpair { display: flex; gap: 6px; }
+  .smp-body { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .smp-mods { display: grid; grid-template-columns: auto auto; gap: 5px; justify-items: center; align-items: center; }
+  .smp-mods .span2 { grid-column: 1 / 3; }
+  .smp-quickwrap { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .smp-quick { display: grid; grid-template-columns: repeat(3, auto); grid-template-rows: repeat(3, auto); gap: 4px; align-items: center; justify-items: center; }
+  .smp-cap {
+    width: 58px; height: 58px; border-radius: 50%; flex-shrink: 0;
+    border: 3px solid var(--blue);
+    background: radial-gradient(circle at 50% 38%, #16324e, #070d16);
     display: flex; align-items: center; justify-content: center;
-    font-size: 0.85rem; font-weight: 600; transition: background 0.1s;
   }
-  .btn-indicator.pressed { background: var(--highlight); box-shadow: 0 0 16px rgba(233,69,96,0.5); }
+  .smp-cap::after { content: ''; width: 24px; height: 24px; border-radius: 50%; background: #0a121f; box-shadow: inset 0 2px 5px rgba(0,0,0,0.7); }
+  .smp-key {
+    position: relative; min-width: 38px; height: 30px; padding: 0 7px;
+    border-radius: 7px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.74rem; font-weight: 600; white-space: nowrap;
+    transition: background 0.1s, box-shadow 0.1s;
+  }
+  .smp-key.rot { width: 34px; min-width: 34px; height: 34px; border-radius: 50%; padding: 0; font-size: 0.95rem; }
+  .smp-key.pressed { background: var(--highlight); box-shadow: 0 0 14px rgba(233,69,96,0.5); }
+  .smp-key-idx { position: absolute; top: 0; right: 3px; font-size: 0.48rem; color: var(--muted); font-weight: 400; }
+  .smp-key.pressed .smp-key-idx { color: rgba(255,255,255,0.85); }
+  .smp-cap-note { text-align: center; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.3px; margin-top: 2px; }
+  .smp-warn { text-align: center; font-size: 0.6rem; color: #e3b341; line-height: 1.3; margin-top: 3px; max-width: 94%; align-self: center; }
   .joy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: 1; align-content: center; }
   .joy-cell { background: var(--accent); border-radius: 8px; padding: 10px 8px; text-align: center; }
   .joy-cell .label { font-size: 0.7rem; color: var(--muted); }
@@ -122,10 +144,22 @@
     <div class="axis-group" id="axisGroup"></div>
   </div>
   <div class="panel">
-    <h2>Buttons</h2>
-    <div class="btn-grid" id="btnGrid">
-      <div class="btn-indicator">L</div>
-      <div class="btn-indicator">R</div>
+    <h2>Buttons &mdash; SpaceMouse Pro</h2>
+    <div class="smp-device" id="btnPad">
+      <div class="smp-fnrow">
+        <div class="smp-fnpair" id="smp-fn-l"></div>
+        <div class="smp-fnpair" id="smp-fn-r"></div>
+      </div>
+      <div class="smp-body">
+        <div class="smp-mods" id="smp-mods"></div>
+        <div class="smp-cap"></div>
+        <div class="smp-quickwrap">
+          <div class="smp-quick" id="smp-quick"></div>
+          <div id="smp-fit"></div>
+        </div>
+      </div>
+      <div class="smp-cap-note">label &middot; small number = <code>spacenav/joy</code> buttons[i]</div>
+      <div class="smp-warn">&#9888; Avoid pressing 3+ buttons at once &mdash; the device may report a phantom button (matrix ghosting).</div>
     </div>
   </div>
   <div class="panel">
@@ -197,17 +231,62 @@ function updateAxes(twist) {
   }
 }
 
-// ─── Buttons ──────────────────────────────────────────────────
+// ─── Buttons (SpaceMouse Pro: 15 buttons, fixed index→name map) ──
+// Index = position in sensor_msgs/Joy .buttons[]. Matches spacenavd's
+// SpaceMouse Pro mapping (bnhack_smpro). 1 = pressed, 0 = released.
+// Keys are arranged radially to match the physical device: function keys
+// arc over the top, keyboard modifiers + Menu on the left, QuickView keys
+// (2x2 with the rotation toggle in the center) + Fit on the right.
+const SMP_BUTTONS = [
+  { i: 0,  label: '1',     name: 'Function 1' },
+  { i: 1,  label: '2',     name: 'Function 2' },
+  { i: 2,  label: '3',     name: 'Function 3' },
+  { i: 3,  label: '4',     name: 'Function 4' },
+  { i: 4,  label: 'Menu',  name: 'Menu' },
+  { i: 5,  label: 'Fit',   name: 'Fit' },
+  { i: 6,  label: 'T',     name: 'Top view' },
+  { i: 7,  label: 'R',     name: 'Right view' },
+  { i: 8,  label: 'F',     name: 'Front view' },
+  { i: 9,  label: 'Roll',  name: 'Roll view' },
+  { i: 10, label: '\u27F3', name: 'Rotation toggle' },
+  { i: 11, label: 'Esc',   name: 'Esc' },
+  { i: 12, label: 'Alt',   name: 'Alt' },
+  { i: 13, label: 'Shift', name: 'Shift' },
+  { i: 14, label: 'Ctrl',  name: 'Ctrl' },
+];
+const smpKeyEls = {};
+function smpKey(i, extra) {
+  const b = SMP_BUTTONS[i];
+  const el = document.createElement('div');
+  el.className = 'smp-key' + (extra ? ' ' + extra : '');
+  el.title = b.name + ' — buttons[' + i + ']';
+  el.innerHTML = `<span class="smp-key-label">${b.label}</span>` +
+                 `<span class="smp-key-idx">${i}</span>`;
+  smpKeyEls[i] = el;
+  return el;
+}
+(function buildButtonPad() {
+  // Function keys: 1,2 over the top-left, 3,4 over the top-right.
+  document.getElementById('smp-fn-l').append(smpKey(0), smpKey(1));
+  document.getElementById('smp-fn-r').append(smpKey(2), smpKey(3));
+  // Left of the cap: keyboard modifiers + Menu (Esc / Shift Ctrl / Alt / Menu).
+  document.getElementById('smp-mods').append(
+    smpKey(11, 'span2'), smpKey(13), smpKey(14),
+    smpKey(12, 'span2'), smpKey(4, 'span2'));
+  // Right of the cap: QuickView 2x2 with the rotation toggle in the center.
+  const q = document.getElementById('smp-quick');
+  const place = (el, r, c) => { el.style.gridRow = r; el.style.gridColumn = c; q.append(el); };
+  place(smpKey(6), 1, 1);          // T  (top-left)
+  place(smpKey(7), 1, 3);          // R  (top-right)
+  place(smpKey(10, 'rot'), 2, 2);  // rotation toggle (center)
+  place(smpKey(8), 3, 1);          // F  (bottom-left)
+  place(smpKey(9), 3, 3);          // Roll (bottom-right)
+  // Fit below the QuickView cluster.
+  document.getElementById('smp-fit').append(smpKey(5));
+})();
 function updateButtons(buttons) {
-  const grid = document.getElementById('btnGrid');
-  while (grid.children.length < buttons.length) {
-    const d = document.createElement('div');
-    d.className = 'btn-indicator';
-    d.textContent = 'B' + grid.children.length;
-    grid.appendChild(d);
-  }
-  for (let i = 0; i < buttons.length; i++)
-    grid.children[i].classList.toggle('pressed', buttons[i] === 1);
+  for (const i in smpKeyEls)
+    smpKeyEls[i].classList.toggle('pressed', buttons[Number(i)] === 1);
 }
 
 // ─── Joy grid ─────────────────────────────────────────────────
