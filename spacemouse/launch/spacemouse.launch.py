@@ -15,16 +15,37 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
     dashboard_port = LaunchConfiguration('dashboard_port')
+    enable_pose = LaunchConfiguration('enable_pose')
+    pose_frequency = LaunchConfiguration('pose_frequency')
+    max_trans_speed = LaunchConfiguration('max_trans_speed')
+    max_rot_speed = LaunchConfiguration('max_rot_speed')
+    integration_frame = LaunchConfiguration('integration_frame')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'dashboard_port', default_value='',
             description='If set (e.g. 8080), also launch the web dashboard on '
                         'this HTTP port. Empty (default) = driver only.'),
+        DeclareLaunchArgument(
+            'enable_pose', default_value='true',
+            description='Start the pose_node (curr_pose/delta_pose publisher).'),
+        DeclareLaunchArgument(
+            'pose_frequency', default_value='100.0',
+            description='Pose publish rate in Hz.'),
+        DeclareLaunchArgument(
+            'max_trans_speed', default_value='0.1',
+            description='Translation speed (m/s) at axis value 1.'),
+        DeclareLaunchArgument(
+            'max_rot_speed', default_value='1.0',
+            description='Rotation speed (rad/s) at axis value 1.'),
+        DeclareLaunchArgument(
+            'integration_frame', default_value='world',
+            description="Pose accumulation frame: 'body' or 'world'."),
 
         # spacenav driver — always launched
         Node(
@@ -42,6 +63,25 @@ def generate_launch_description():
             }],
         ),
 
+        # pose integrator — core "pose output" function (dashboard-independent)
+        Node(
+            package='spacemouse',
+            executable='pose_node',
+            name='pose_node',
+            output='screen',
+            condition=IfCondition(enable_pose),
+            parameters=[{
+                'publish_frequency': ParameterValue(
+                    pose_frequency, value_type=float),
+                'max_trans_speed': ParameterValue(
+                    max_trans_speed, value_type=float),
+                'max_rot_speed': ParameterValue(
+                    max_rot_speed, value_type=float),
+                'integration_frame': ParameterValue(
+                    integration_frame, value_type=str),
+            }],
+        ),
+
         # web dashboard — only when dashboard_port is provided
         Node(
             package='spacemouse',
@@ -52,6 +92,7 @@ def generate_launch_description():
                 PythonExpression(["'", dashboard_port, "' != ''"])),
             parameters=[{
                 'http_port': dashboard_port,
+                'pose_node_name': 'pose_node',
             }],
         ),
     ])

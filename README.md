@@ -97,6 +97,11 @@ ros2 launch spacemouse dashboard.launch.py
 | Argument         | Default | Description                                              |
 |------------------|---------|----------------------------------------------------------|
 | `dashboard_port` | (empty) | `spacemouse.launch.py`: if set (e.g. `8080`), also start the dashboard on this port. Empty = driver only. |
+| `enable_pose`    | `true`  | `spacemouse.launch.py`: start the `pose_node` pose publisher. |
+| `pose_frequency` | `100.0` | `spacemouse.launch.py`: pose publish rate (Hz). |
+| `max_trans_speed`| `0.1`   | `spacemouse.launch.py`: translation speed (m/s) at axis = 1. |
+| `max_rot_speed`  | `1.0`   | `spacemouse.launch.py`: rotation speed (rad/s) at axis = 1. |
+| `integration_frame` | `world` | `spacemouse.launch.py`: accumulate deltas in `body` or `world` frame. |
 | `http_port`      | `8080`  | `dashboard.launch.py`: HTTP port for the web UI + data.  |
 
 ```bash
@@ -113,6 +118,50 @@ Subscribed by the dashboard (published by the `spacenav` driver):
 | `spacenav/offset`      | `geometry_msgs/msg/Vector3`   | Linear offset (scaled)             |
 | `spacenav/rot_offset`  | `geometry_msgs/msg/Vector3`   | Angular offset (scaled)            |
 | `spacenav/joy`         | `sensor_msgs/msg/Joy`         | Raw axes + fixed 15-button array (see [Buttons](#buttons-spacemouse-pro)) |
+
+### Pose output
+
+The `pose_node` integrates the normalized axes into ready-to-use poses
+(translation vector + quaternion), published at a fixed rate (`pose_frequency`,
+default 100 Hz). It runs by default and works independently of the dashboard.
+
+| Topic                 | Type                            | Direction  | Description |
+|-----------------------|---------------------------------|------------|-------------|
+| `spacenav/curr_pose`  | `geometry_msgs/msg/PoseStamped` | published  | Accumulated pose |
+| `spacenav/delta_pose` | `geometry_msgs/msg/PoseStamped` | published  | Per-tick incremental pose |
+| `spacenav/set_pose`   | `geometry_msgs/msg/PoseStamped` | subscribed | Explicitly reset `curr_pose` |
+
+Each tick advances by `axis × max_speed / pose_frequency` — e.g. with
+`max_trans_speed = 0.1` m/s at 100 Hz, a fully deflected axis moves `0.001` m per
+message. `curr_pose` is the running accumulation of `delta_pose`.
+
+**Parameters** (on `pose_node`; settable at launch and at runtime via
+`ros2 param set` or the dashboard sliders):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `publish_frequency` | `100.0` | Output rate (Hz) |
+| `max_trans_speed` | `0.1` | Translation speed (m/s) at axis = 1 |
+| `max_rot_speed` | `1.0` | Rotation speed (rad/s) at axis = 1 |
+| `integration_frame` | `world` | Accumulate deltas in `body` or `world` frame |
+| `pose_frame_id` | `spacenav_origin` | `header.frame_id` of the poses |
+| `publish_tf` | `false` | Also broadcast `curr_pose` on TF |
+
+Example:
+
+```bash
+# reset curr_pose to identity
+ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+  '{pose: {orientation: {w: 1.0}}}'
+
+# change the translation speed live
+ros2 param set /pose_node max_trans_speed 0.2
+
+ros2 topic echo spacenav/curr_pose
+```
+
+The dashboard's **Current Pose** panel renders the `curr_pose` frame in 3D, with
+buttons to reset it to identity / an offset pose and sliders for the two speeds.
 
 ## Buttons (SpaceMouse Pro)
 
@@ -201,7 +250,8 @@ presses**.
 │   │   └── dashboard.launch.py        # dashboard only
 │   ├── spacemouse/
 │   │   ├── __init__.py
-│   │   └── dashboard_node.py
+│   │   ├── dashboard_node.py
+│   │   └── pose_node.py
 │   ├── web/
 │   │   └── index.html
 │   ├── resource/spacemouse

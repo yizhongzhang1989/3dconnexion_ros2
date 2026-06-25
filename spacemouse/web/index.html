@@ -113,10 +113,22 @@
   .smp-key.pressed .smp-key-idx { color: rgba(255,255,255,0.85); }
   .smp-cap-note { text-align: center; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.3px; margin-top: 2px; }
   .smp-warn { text-align: center; font-size: 0.6rem; color: #e3b341; line-height: 1.3; margin-top: 3px; max-width: 94%; align-self: center; }
-  .joy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: 1; align-content: center; }
-  .joy-cell { background: var(--accent); border-radius: 8px; padding: 10px 8px; text-align: center; }
-  .joy-cell .label { font-size: 0.7rem; color: var(--muted); }
-  .joy-cell .value { font-size: 1.1rem; font-family: monospace; margin-top: 2px; }
+  .joy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: 0 0 auto; margin-top: 10px; }
+  .joy-cell { background: var(--accent); border-radius: 8px; padding: 6px 6px; text-align: center; }
+  .joy-cell .label { font-size: 0.66rem; color: var(--muted); }
+  .joy-cell .value { font-size: 0.95rem; font-family: monospace; margin-top: 2px; }
+  /* Current Pose panel */
+  #pose-container { flex: 1; width: 100%; min-height: 0; position: relative; border-radius: 6px; overflow: hidden; }
+  #pose-readout { font-size: 0.72rem; font-family: monospace; color: rgba(255,255,255,0.75); margin-top: 8px; line-height: 1.5; flex-shrink: 0; }
+  #pose-controls { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; flex-shrink: 0; }
+  .pose-btn-row { display: flex; gap: 8px; }
+  .pose-btn { flex: 1; padding: 7px; background: var(--accent); border: none; border-radius: 6px; color: var(--text); font-weight: 600; cursor: pointer; transition: background 0.1s, color 0.1s; }
+  .pose-btn:hover { background: var(--blue); color: #111; }
+  .pose-btn:active { background: var(--green); }
+  .pose-slider-row { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; }
+  .pose-slider-row label { width: 78px; color: var(--muted); flex-shrink: 0; }
+  .pose-slider-row input[type=range] { flex: 1; accent-color: var(--blue); }
+  .pose-slider-row .sval { width: 50px; font-family: monospace; text-align: right; flex-shrink: 0; }
 </style>
 <script type="importmap">
 {
@@ -134,10 +146,11 @@
 </header>
 <div class="main">
   <div class="panel">
-    <h2>3D Preview</h2>
+    <h2>Raw Input &mdash; 3D Preview &amp; Joy</h2>
     <div id="three-container">
       <div id="topic-info"></div>
     </div>
+    <div class="joy-grid" id="joyGrid"></div>
   </div>
   <div class="panel">
     <h2>Axes</h2>
@@ -163,8 +176,25 @@
     </div>
   </div>
   <div class="panel">
-    <h2>Joy Raw Values</h2>
-    <div class="joy-grid" id="joyGrid"></div>
+    <h2>Current Pose &mdash; spacenav/curr_pose</h2>
+    <div id="pose-container"></div>
+    <div id="pose-readout">curr_pose: (no data)</div>
+    <div id="pose-controls">
+      <div class="pose-btn-row">
+        <button class="pose-btn" id="btn-identity">Set Identity</button>
+        <button class="pose-btn" id="btn-offset">Set Offset</button>
+      </div>
+      <div class="pose-slider-row">
+        <label>trans (m/s)</label>
+        <input type="range" id="slider-trans" min="0" max="1" step="0.01" value="0.1">
+        <span class="sval" id="val-trans">0.100</span>
+      </div>
+      <div class="pose-slider-row">
+        <label>rot (rad/s)</label>
+        <input type="range" id="slider-rot" min="0" max="3" step="0.05" value="1.0">
+        <span class="sval" id="val-rot">1.000</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -307,151 +337,187 @@ function updateJoy(axes) {
 </script>
 
 <script type="module">
-// ─── Three.js 3D Preview (self-contained, no CDN) ────────────
+// ─── Three.js viewers (self-contained, no CDN) ───────────────
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 
-const container = document.getElementById('three-container');
+// Build a self-contained scene (camera, lights, grid, controls) in a container.
+function makeScene(container) {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x16213e);
 
-// Scene
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x16213e);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  camera.up.set(0, 0, 1); // Z up
+  const camDist = 7, tilt = 30 * Math.PI / 180;
+  camera.position.set(-camDist * Math.cos(tilt), 1.5, camDist * Math.sin(tilt));
+  camera.lookAt(0, 0, 0);
 
-// Camera — Z-up, looking at +X, tilted down ~30°
-const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-camera.up.set(0, 0, 1); // Z is up
-// Position behind –X, slightly +Y (left), elevated in Z for 30° downward tilt
-const camDist = 7;
-const tiltAngle = 30 * Math.PI / 180;
-camera.position.set(-camDist * Math.cos(tiltAngle), 1.5, camDist * Math.sin(tiltAngle));
-camera.lookAt(0, 0, 0);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  container.appendChild(renderer.domElement);
 
-// Renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-container.appendChild(renderer.domElement);
+  const controls = new TrackballControls(camera, renderer.domElement);
+  controls.rotateSpeed = 3.0; controls.zoomSpeed = 1.2; controls.panSpeed = 0.8;
+  controls.dynamicDampingFactor = 0.15; controls.target.set(0, 0, 0);
 
-// TrackballControls (arcball-style rotation)
-const controls = new TrackballControls(camera, renderer.domElement);
-controls.rotateSpeed = 3.0;
-controls.zoomSpeed = 1.2;
-controls.panSpeed = 0.8;
-controls.dynamicDampingFactor = 0.15;
-controls.target.set(0, 0, 0);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+  scene.add(new THREE.HemisphereLight(0xb0d4f1, 0x404040, 0.5));
+  const d1 = new THREE.DirectionalLight(0xffffff, 0.9);
+  d1.position.set(5, 3, 8); d1.castShadow = true; d1.shadow.mapSize.set(1024, 1024);
+  scene.add(d1);
+  const d2 = new THREE.DirectionalLight(0xffffff, 0.4);
+  d2.position.set(-3, -4, -1); scene.add(d2);
 
-// Lighting
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-scene.add(new THREE.HemisphereLight(0xb0d4f1, 0x404040, 0.5));
-const d1 = new THREE.DirectionalLight(0xffffff, 0.9);
-d1.position.set(5, 3, 8); d1.castShadow = true;
-d1.shadow.mapSize.set(1024, 1024); scene.add(d1);
-const d2 = new THREE.DirectionalLight(0xffffff, 0.4);
-d2.position.set(-3, -4, -1); scene.add(d2);
+  const grid = new THREE.GridHelper(10, 10, 0x444466, 0x333355);
+  grid.rotation.x = Math.PI / 2; grid.position.z = -1.8; scene.add(grid);
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(10, 10),
+    new THREE.ShadowMaterial({ opacity: 0.25 }));
+  ground.position.z = -1.8; ground.receiveShadow = true; scene.add(ground);
+  scene.add(new THREE.AxesHelper(0.5));
 
-// Grid on XY plane (Z-up)
-const grid = new THREE.GridHelper(10, 10, 0x444466, 0x333355);
-grid.rotation.x = Math.PI / 2; // rotate from Y-up to Z-up
-grid.position.z = -1.8;
-scene.add(grid);
-
-// Ground shadow plane on XY (Z-up)
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(10, 10),
-  new THREE.ShadowMaterial({ opacity: 0.25 })
-);
-ground.position.z = -1.8;
-ground.receiveShadow = true;
-scene.add(ground);
-
-// Cube group
-const cubeGroup = new THREE.Group();
-scene.add(cubeGroup);
-
-// Cube
-const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
-const materials = [
-  new THREE.MeshPhysicalMaterial({ color: 0xe94560, metalness: 0.2, roughness: 0.4 }),
-  new THREE.MeshPhysicalMaterial({ color: 0xc73a52, metalness: 0.2, roughness: 0.4 }),
-  new THREE.MeshPhysicalMaterial({ color: 0x4ecca3, metalness: 0.2, roughness: 0.4 }),
-  new THREE.MeshPhysicalMaterial({ color: 0x3db88e, metalness: 0.2, roughness: 0.4 }),
-  new THREE.MeshPhysicalMaterial({ color: 0x00b4d8, metalness: 0.2, roughness: 0.4 }),
-  new THREE.MeshPhysicalMaterial({ color: 0x0096b5, metalness: 0.2, roughness: 0.4 }),
-];
-const cube = new THREE.Mesh(geo, materials);
-cube.castShadow = true;
-cube.receiveShadow = true;
-
-// Wireframe edges
-const edges = new THREE.LineSegments(
-  new THREE.EdgesGeometry(geo),
-  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 })
-);
-cube.add(edges);
-cubeGroup.add(cube);
-
-// Axes arrows on the cube
-const axLen = 1.6;
-const axColors = [0xe94560, 0x4ecca3, 0x00b4d8];
-[new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)].forEach((dir, i) => {
-  const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0,0,0), axLen, axColors[i], 0.22, 0.13);
-  cubeGroup.add(arrow);
-});
-
-// Scene axes helper (small, at origin)
-scene.add(new THREE.AxesHelper(0.5));
-
-// Resize
-function resize() {
-  const w = container.clientWidth, h = container.clientHeight;
-  if (w <= 0 || h <= 0) return;
-  renderer.setSize(w, h);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-  controls.handleResize();
+  const v = { scene, camera, renderer, controls };
+  v.resize = () => {
+    const w = container.clientWidth, h = container.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    renderer.setSize(w, h);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+    controls.handleResize();
+  };
+  window.addEventListener('resize', v.resize);
+  if (window.ResizeObserver) new ResizeObserver(() => v.resize()).observe(container);
+  v.resize();
+  return v;
 }
-window.addEventListener('resize', resize);
-resize();
 
-// State
-const cubeQuat = new THREE.Quaternion(); // accumulated rotation
-let tPosX = 0, tPosY = 0, tPosZ = 0;
-const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 2.0;
+// Add a cube + axis arrows, returned as a group so callers can pose it.
+function makeCube(scene) {
+  const group = new THREE.Group(); scene.add(group);
+  const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+  const materials = [
+    new THREE.MeshPhysicalMaterial({ color: 0xe94560, metalness: 0.2, roughness: 0.4 }),
+    new THREE.MeshPhysicalMaterial({ color: 0xc73a52, metalness: 0.2, roughness: 0.4 }),
+    new THREE.MeshPhysicalMaterial({ color: 0x4ecca3, metalness: 0.2, roughness: 0.4 }),
+    new THREE.MeshPhysicalMaterial({ color: 0x3db88e, metalness: 0.2, roughness: 0.4 }),
+    new THREE.MeshPhysicalMaterial({ color: 0x00b4d8, metalness: 0.2, roughness: 0.4 }),
+    new THREE.MeshPhysicalMaterial({ color: 0x0096b5, metalness: 0.2, roughness: 0.4 }),
+  ];
+  const cube = new THREE.Mesh(geo, materials);
+  cube.castShadow = true; cube.receiveShadow = true;
+  cube.add(new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 })));
+  group.add(cube);
+  const axColors = [0xe94560, 0x4ecca3, 0x00b4d8];
+  [[1, 0, 0], [0, 1, 0], [0, 0, 1]].forEach((dir, i) => {
+    group.add(new THREE.ArrowHelper(
+      new THREE.Vector3(dir[0], dir[1], dir[2]), new THREE.Vector3(0, 0, 0),
+      1.6, axColors[i], 0.22, 0.13));
+  });
+  return { group, cube };
+}
 
-// Render + animation loop
+// Viewer 1 — raw input preview: the cube tilts/shifts proportionally to the
+// current twist (no integration), easing back to neutral when input stops.
+const rawViewer = makeScene(document.getElementById('three-container'));
+const rawCube = makeCube(rawViewer.scene);
+const SMOOTH = 0.2;       // easing toward the target each frame
+const rawTargetQuat = new THREE.Quaternion();
+const rawTargetPos = new THREE.Vector3();
+
+// Viewer 2 — current pose frame (driven directly by spacenav/curr_pose).
+const poseViewer = makeScene(document.getElementById('pose-container'));
+const poseCube = makeCube(poseViewer.scene);
+const poseQuat = new THREE.Quaternion();
+
+// ─── Current Pose panel controls ─────────────────────────────
+function updatePoseReadout(d) {
+  const el = document.getElementById('pose-readout');
+  const cp = d && d.curr_pose;
+  if (!cp) { el.textContent = 'curr_pose: (no data)'; return; }
+  el.innerHTML =
+    `pos&nbsp; [${cp.px.toFixed(3)}, ${cp.py.toFixed(3)}, ${cp.pz.toFixed(3)}]<br>` +
+    `quat [${cp.qx.toFixed(3)}, ${cp.qy.toFixed(3)}, ${cp.qz.toFixed(3)}, ${cp.qw.toFixed(3)}]`;
+}
+
+async function postJSON(path, body) {
+  try {
+    const r = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+document.getElementById('btn-identity').addEventListener('click',
+  () => postJSON('/set_pose', { type: 'identity' }));
+document.getElementById('btn-offset').addEventListener('click',
+  () => postJSON('/set_pose', { type: 'offset' }));
+
+const transSlider = document.getElementById('slider-trans');
+const rotSlider = document.getElementById('slider-rot');
+const transVal = document.getElementById('val-trans');
+const rotVal = document.getElementById('val-rot');
+let paramsInit = false;
+function sendParams() {
+  postJSON('/params', {
+    max_trans_speed: parseFloat(transSlider.value),
+    max_rot_speed: parseFloat(rotSlider.value),
+  });
+}
+transSlider.addEventListener('input', () => { transVal.textContent = parseFloat(transSlider.value).toFixed(3); });
+rotSlider.addEventListener('input', () => { rotVal.textContent = parseFloat(rotSlider.value).toFixed(3); });
+transSlider.addEventListener('change', sendParams);
+rotSlider.addEventListener('change', sendParams);
+function maybeInitParams(d) {
+  if (paramsInit || !d || !d.pose_params) return;
+  const pp = d.pose_params;
+  if (pp.max_trans_speed != null) { transSlider.value = pp.max_trans_speed; transVal.textContent = Number(pp.max_trans_speed).toFixed(3); }
+  if (pp.max_rot_speed != null) { rotSlider.value = pp.max_rot_speed; rotVal.textContent = Number(pp.max_rot_speed).toFixed(3); }
+  paramsInit = true;
+}
+
+// ─── Render + animation loop ─────────────────────────────────
 (function animate() {
   requestAnimationFrame(animate);
-
-  // Read latestData from the global scope (set by polling script)
   const d = window.latestData;
-  const twist = d ? d.twist : { lx:0, ly:0, lz:0, ax:0, ay:0, az:0 };
+  const twist = d ? d.twist : { lx: 0, ly: 0, lz: 0, ax: 0, ay: 0, az: 0 };
   const dt = 1 / 30;
 
-  // Build incremental rotation quaternion from current angular input
-  const dax = (twist.ax || 0) * ROT_SPEED * dt;
-  const day = (twist.ay || 0) * ROT_SPEED * dt;
-  const daz = (twist.az || 0) * ROT_SPEED * dt;
-  const deltaQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(dax, day, daz, 'XYZ'));
-  // Apply incremental rotation to accumulated rotation
-  cubeQuat.multiplyQuaternions(deltaQuat, cubeQuat);
-  cubeQuat.normalize();
+  // Raw preview: tilt = axis * max_rot_speed and shift = axis * max_trans_speed,
+  // so the cube directly reflects the configured speeds (eased for smoothness).
+  const pp = (d && d.pose_params) || {};
+  const rotGain = (pp.max_rot_speed != null) ? pp.max_rot_speed : 1.0;
+  const transGain = (pp.max_trans_speed != null) ? pp.max_trans_speed : 0.1;
+  rawTargetQuat.setFromEuler(new THREE.Euler(
+    (twist.ax || 0) * rotGain,
+    (twist.ay || 0) * rotGain,
+    (twist.az || 0) * rotGain, 'XYZ'));
+  rawCube.cube.quaternion.slerp(rawTargetQuat, SMOOTH);
+  rawTargetPos.set(
+    (twist.lx || 0) * transGain,
+    (twist.ly || 0) * transGain,
+    (twist.lz || 0) * transGain);
+  rawCube.group.position.lerp(rawTargetPos, SMOOTH);
 
-  tPosX += (twist.lx || 0) * POS_SPEED * dt;
-  tPosY += (twist.ly || 0) * POS_SPEED * dt;
-  tPosZ += (twist.lz || 0) * POS_SPEED * dt;
-  tPosX *= DECAY; tPosY *= DECAY; tPosZ *= DECAY;
+  // Current pose: place the frame directly from the message (no integration).
+  if (d && d.curr_pose) {
+    const cp = d.curr_pose;
+    poseCube.group.position.set(cp.px, cp.py, cp.pz);
+    poseQuat.set(cp.qx, cp.qy, cp.qz, cp.qw);
+    poseCube.group.quaternion.copy(poseQuat);
+  }
 
-  cube.quaternion.copy(cubeQuat);
-  cubeGroup.position.set(tPosX, tPosY, tPosZ);
-
-  // Update 2D UI
   if (d) {
     updateAxes(d.twist);
     updateButtons(d.joy.buttons || []);
     updateJoy(d.joy.axes || []);
-
-    // Update topic info overlay
+    updatePoseReadout(d);
+    maybeInitParams(d);
     if (d.hz) {
       const info = document.getElementById('topic-info');
       info.innerHTML = Object.entries(d.hz)
@@ -460,8 +526,10 @@ const DECAY = 0.92, ROT_SPEED = 2.5, POS_SPEED = 2.0;
     }
   }
 
-  controls.update();
-  renderer.render(scene, camera);
+  rawViewer.controls.update();
+  rawViewer.renderer.render(rawViewer.scene, rawViewer.camera);
+  poseViewer.controls.update();
+  poseViewer.renderer.render(poseViewer.scene, poseViewer.camera);
 })();
 </script>
 </body>
