@@ -19,18 +19,28 @@ _IDENTITY_POSE = {'px': 0.0, 'py': 0.0, 'pz': 0.0,
 
 
 class _HzTracker:
-    """Tracks message frequency for a topic."""
+    """Tracks message frequency and freshness for a topic.
+
+    ``hz`` reports 0 once messages stop (older trackers froze at the last
+    computed value), and ``age`` exposes the seconds since the last message so
+    callers can decide whether a stream is alive.
+    """
+
+    # A stream is considered stale (hz -> 0) if nothing arrives for this long.
+    _STALE_AFTER = 1.5
 
     def __init__(self):
         self._count = 0
         self._hz = 0.0
         self._last_reset = time.monotonic()
+        self._last_tick = None
         self._lock = threading.Lock()
 
     def tick(self):
         with self._lock:
-            self._count += 1
             now = time.monotonic()
+            self._count += 1
+            self._last_tick = now
             elapsed = now - self._last_reset
             if elapsed >= 1.0:
                 self._hz = self._count / elapsed
@@ -40,7 +50,18 @@ class _HzTracker:
     @property
     def hz(self):
         with self._lock:
+            if (self._last_tick is None or
+                    time.monotonic() - self._last_tick > self._STALE_AFTER):
+                self._hz = 0.0
             return round(self._hz, 1)
+
+    @property
+    def age(self):
+        """Seconds since the last message, or ``None`` if none seen yet."""
+        with self._lock:
+            if self._last_tick is None:
+                return None
+            return round(time.monotonic() - self._last_tick, 2)
 
 
 class DashboardNode(Node):
@@ -69,6 +90,10 @@ class DashboardNode(Node):
             'delta_pose': dict(_IDENTITY_POSE),
         }
         self.data_lock = threading.Lock()
+        # Monotonic time of the last REAL input (non-zero motion or a button
+        # press). Used to tell a live SpaceMouse apart from the all-zero stream
+        # the driver emits even with no device attached.
+        self._last_activity = None
 
         # Cached pose_node parameter values (used to seed the dashboard sliders)
         self._pose_params = {
@@ -124,11 +149,16 @@ class DashboardNode(Node):
 
     def _twist_cb(self, msg: Twist):
         self._hz['spacenav/twist'].tick()
+        moving = max(abs(msg.linear.x), abs(msg.linear.y), abs(msg.linear.z),
+                     abs(msg.angular.x), abs(msg.angular.y),
+                     abs(msg.angular.z)) > self._ACTIVITY_EPS
         with self.data_lock:
             self.data['twist'] = {
                 'lx': msg.linear.x, 'ly': msg.linear.y, 'lz': msg.linear.z,
                 'ax': msg.angular.x, 'ay': msg.angular.y, 'az': msg.angular.z,
             }
+            if moving:
+                self._last_activity = time.monotonic()
 
     def _offset_cb(self, msg: Vector3):
         self._hz['spacenav/offset'].tick()
@@ -142,11 +172,15 @@ class DashboardNode(Node):
 
     def _joy_cb(self, msg: Joy):
         self._hz['spacenav/joy'].tick()
+        active = (any(msg.buttons) or
+                  any(abs(a) > self._ACTIVITY_EPS for a in msg.axes))
         with self.data_lock:
             self.data['joy'] = {
                 'axes': list(msg.axes),
                 'buttons': list(msg.buttons),
             }
+            if active:
+                self._last_activity = time.monotonic()
 
     def _curr_pose_cb(self, msg: PoseStamped):
         self._hz['spacenav/curr_pose'].tick()
@@ -164,6 +198,49 @@ class DashboardNode(Node):
             'px': pose.position.x, 'py': pose.position.y, 'pz': pose.position.z,
             'qx': pose.orientation.x, 'qy': pose.orientation.y,
             'qz': pose.orientation.z, 'qw': pose.orientation.w,
+        }
+
+    # ── Device connectivity ──────────────────────────────────────────────
+    # IMPORTANT: the spacenav driver bursts ZERO-valued twist/joy at ~33 Hz
+    # whenever it can reach the spacenavd daemon -- even with NO device plugged
+    # in (verified: a device absent from lsusb still yields zero twists). So a
+    # fresh stream only proves the driver<->spacenavd link, not a live
+    # SpaceMouse. We report three states instead:
+    #   offline : no twist/joy at all (driver down or spacenavd unreachable).
+    #   idle    : frames flowing but all zero -- a STILL or an UNPLUGGED device
+    #             look identical (no movement is being delivered either way).
+    #   active  : real non-zero motion or a button seen recently -> the
+    #             SpaceMouse is definitely present and delivering input.
+    _ACTIVITY_EPS = 1e-4
+    _DEVICE_FRESH_AFTER = 1.5
+    _DEVICE_ACTIVE_AFTER = 2.5
+
+    def device_status(self):
+        twist = self._hz['spacenav/twist']
+        joy = self._hz['spacenav/joy']
+
+        def _fresh(age):
+            return age is not None and age < self._DEVICE_FRESH_AFTER
+
+        streaming = _fresh(twist.age) or _fresh(joy.age)
+        with self.data_lock:
+            last_act = self._last_activity
+        active = (last_act is not None and
+                  time.monotonic() - last_act < self._DEVICE_ACTIVE_AFTER)
+        if not streaming:
+            state = 'offline'
+        elif active:
+            state = 'active'
+        else:
+            state = 'idle'
+        return {
+            'state': state,
+            'connected': active,    # honest: only True while delivering input
+            'streaming': streaming,
+            'twist_hz': twist.hz,
+            'joy_hz': joy.hz,
+            'twist_age': twist.age,
+            'joy_age': joy.age,
         }
 
     # ── UI command bridge: HTTP threads store intents, a ROS timer applies them
@@ -300,6 +377,8 @@ class DashboardNode(Node):
                         resp = dict(node_ref.data)
                         resp['pose_params'] = dict(node_ref._pose_params)
                     resp['hz'] = {t: tr.hz for t, tr in node_ref._hz.items()}
+                    resp['age'] = {t: tr.age for t, tr in node_ref._hz.items()}
+                    resp['device'] = node_ref.device_status()
                     payload = json.dumps(resp).encode()
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')

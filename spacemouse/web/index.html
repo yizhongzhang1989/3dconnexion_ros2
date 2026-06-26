@@ -14,6 +14,7 @@
     --muted: #888;
     --green: #4ecca3;
     --blue: #00b4d8;
+    --amber: #e3b341;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -25,65 +26,90 @@
     height: 100vh;
     overflow: hidden;
   }
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 24px;
+  /* ── 1. Sticky top status bar ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; flex-shrink: 0;
+    padding: 10px 22px;
     background: var(--panel);
     border-bottom: 2px solid var(--accent);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
   }
-  header h1 { font-size: 1.3rem; font-weight: 600; }
-  #status {
-    font-size: 0.85rem;
-    padding: 4px 14px;
-    border-radius: 12px;
-    background: var(--highlight);
+  .topbar h1 { font-size: 1.2rem; font-weight: 600; white-space: nowrap; }
+  .status-group { display: flex; gap: 10px; flex-wrap: wrap; }
+  .status-pill {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.82rem; font-weight: 600;
+    padding: 5px 14px; border-radius: 14px;
+    background: var(--accent); color: var(--text);
+    border: 1px solid rgba(255,255,255,0.08);
   }
-  #status.connected { background: var(--green); color: #111; }
-  .main {
-    flex: 1;
+  .status-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .status-pill .sub { color: var(--muted); font-weight: 400; font-size: 0.74rem; }
+  .status-pill.ok .dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-pill.ok .sub { color: rgba(255,255,255,0.7); }
+  .status-pill.warn .dot { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .status-pill.warn .sub { color: rgba(255,255,255,0.7); }
+  .status-pill.bad .dot { background: var(--highlight); box-shadow: 0 0 8px var(--highlight); }
+  /* ── 2 + 3. Main split: left canvas / right control panel ── */
+  .layout {
+    flex: 1; min-height: 0;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 12px;
-    padding: 12px;
-    min-height: 0;
+    grid-template-columns: 1fr 400px;
+    gap: 12px; padding: 12px;
   }
-  .panel {
+  .card {
     background: var(--panel);
     border-radius: 10px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
+    padding: 14px;
+    display: flex; flex-direction: column;
     overflow: hidden;
   }
-  .panel h2 {
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--muted);
-    margin-bottom: 10px;
-    flex-shrink: 0;
+  .card h2 {
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 10px; flex-shrink: 0;
   }
-  #three-container { flex: 1; width: 100%; min-height: 0; position: relative; border-radius: 6px; overflow: hidden; }
-  #topic-info {
-    position: absolute; bottom: 8px; left: 8px;
-    font-size: 0.7rem; font-family: monospace;
-    color: rgba(255,255,255,0.6);
-    pointer-events: none; line-height: 1.5;
+  /* Left column — current-pose 3D canvas + basic info */
+  .canvas-col { min-height: 0; }
+  #pose-container { flex: 1; width: 100%; min-height: 0; position: relative; border-radius: 6px; overflow: hidden; }
+  #pose-hud {
+    position: absolute; top: 8px; left: 8px;
+    font-size: 0.72rem; font-family: monospace; line-height: 1.5;
+    color: rgba(255,255,255,0.85);
+    background: rgba(10,16,30,0.55); border-radius: 6px;
+    padding: 6px 9px; pointer-events: none;
   }
-  #topic-info span { color: var(--green); }
-  .axis-group { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+  #pose-hud b { color: var(--blue); font-weight: 600; }
+  .info-strip {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    margin-top: 12px; flex-shrink: 0;
+    border-top: 1px solid var(--accent); padding-top: 10px;
+  }
+  .info-block h3 {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  #hz-info, #pose-readout { font-size: 0.72rem; font-family: monospace; color: rgba(255,255,255,0.78); line-height: 1.65; }
+  .hz-row { display: flex; justify-content: space-between; gap: 12px; }
+  .hz-row .t { color: rgba(255,255,255,0.6); }
+  .hz-row .v { color: var(--green); }
+  .hz-row.stale .v { color: var(--muted); }
+  /* Right column — scrollable control stack */
+  .control-col { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding-right: 2px; }
+  .control-col .card { flex-shrink: 0; }
+  #three-container { height: 200px; width: 100%; position: relative; border-radius: 6px; overflow: hidden; }
+  /* Axes */
+  .axis-group { display: flex; flex-direction: column; gap: 7px; }
   .axis-row { display: flex; align-items: center; gap: 8px; }
-  .axis-label { width: 28px; font-size: 0.8rem; font-weight: 600; text-align: right; flex-shrink: 0; }
+  .axis-label { width: 34px; font-size: 0.74rem; font-weight: 600; text-align: right; flex-shrink: 0; }
   .axis-bar-track {
-    flex: 1; height: 18px; background: var(--accent);
+    flex: 1; height: 16px; background: var(--accent);
     border-radius: 4px; position: relative; overflow: hidden;
   }
   .axis-bar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
   .axis-bar-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; transition: left 0.05s, width 0.05s; }
-  .axis-value { width: 52px; font-size: 0.75rem; font-family: monospace; text-align: left; flex-shrink: 0; }
+  .axis-value { width: 50px; font-size: 0.72rem; font-family: monospace; text-align: right; flex-shrink: 0; }
   /* SpaceMouse Pro button pad — radial layout matching the physical device */
   .smp-device { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 0; }
   .smp-fnrow { display: flex; gap: 54px; justify-content: center; }
@@ -113,20 +139,14 @@
   .smp-key.pressed .smp-key-idx { color: rgba(255,255,255,0.85); }
   .smp-cap-note { text-align: center; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.3px; margin-top: 2px; }
   .smp-warn { text-align: center; font-size: 0.6rem; color: #e3b341; line-height: 1.3; margin-top: 3px; max-width: 94%; align-self: center; }
-  .joy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: 0 0 auto; margin-top: 10px; }
-  .joy-cell { background: var(--accent); border-radius: 8px; padding: 6px 6px; text-align: center; }
-  .joy-cell .label { font-size: 0.66rem; color: var(--muted); }
-  .joy-cell .value { font-size: 0.95rem; font-family: monospace; margin-top: 2px; }
-  /* Current Pose panel */
-  #pose-container { flex: 1; width: 100%; min-height: 0; position: relative; border-radius: 6px; overflow: hidden; }
-  #pose-readout { font-size: 0.72rem; font-family: monospace; color: rgba(255,255,255,0.75); margin-top: 8px; line-height: 1.5; flex-shrink: 0; }
-  #pose-controls { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; flex-shrink: 0; }
+  /* Control part — pose reset buttons + speed sliders */
+  #pose-controls { display: flex; flex-direction: column; gap: 8px; }
   .pose-btn-row { display: flex; gap: 8px; }
-  .pose-btn { flex: 1; padding: 7px; background: var(--accent); border: none; border-radius: 6px; color: var(--text); font-weight: 600; cursor: pointer; transition: background 0.1s, color 0.1s; }
+  .pose-btn { flex: 1; padding: 8px; background: var(--accent); border: none; border-radius: 6px; color: var(--text); font-weight: 600; cursor: pointer; transition: background 0.1s, color 0.1s; }
   .pose-btn:hover { background: var(--blue); color: #111; }
   .pose-btn:active { background: var(--green); }
   .pose-slider-row { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; }
-  .pose-slider-row label { width: 78px; color: var(--muted); flex-shrink: 0; }
+  .pose-slider-row label { width: 84px; color: var(--muted); flex-shrink: 0; }
   .pose-slider-row input[type=range] { flex: 1; accent-color: var(--blue); }
   .pose-slider-row .sval { width: 50px; font-family: monospace; text-align: right; flex-shrink: 0; }
 </style>
@@ -140,91 +160,156 @@
 </script>
 </head>
 <body>
-<header>
+<header class="topbar">
   <h1>&#x1F5B1; SpaceMouse Dashboard</h1>
-  <span id="status">Disconnected</span>
+  <div class="status-group">
+    <span class="status-pill" id="server-status">
+      <span class="dot"></span>Server&nbsp;<span class="sub" id="server-sub">connecting&hellip;</span>
+    </span>
+    <span class="status-pill" id="device-status" title="active = receiving motion/buttons &middot; no input = driver streaming but all-zero (a still OR unplugged device) &middot; no data = driver/spacenavd not publishing">
+      <span class="dot"></span>Device&nbsp;<span class="sub" id="device-sub">unknown</span>
+    </span>
+  </div>
 </header>
-<div class="main">
-  <div class="panel">
-    <h2>Raw Input &mdash; 3D Preview &amp; Joy</h2>
-    <div id="three-container">
-      <div id="topic-info"></div>
+<div class="layout">
+  <!-- LEFT — current-pose 3D canvas + basic info (topic hz, current pose) -->
+  <section class="card canvas-col">
+    <h2>Current Pose &mdash; spacenav/curr_pose</h2>
+    <div id="pose-container">
+      <div id="pose-hud">curr_pose: (no data)</div>
     </div>
-    <div class="joy-grid" id="joyGrid"></div>
-  </div>
-  <div class="panel">
-    <h2>Axes</h2>
-    <div class="axis-group" id="axisGroup"></div>
-  </div>
-  <div class="panel">
-    <h2>Buttons &mdash; SpaceMouse Pro</h2>
-    <div class="smp-device" id="btnPad">
-      <div class="smp-fnrow">
-        <div class="smp-fnpair" id="smp-fn-l"></div>
-        <div class="smp-fnpair" id="smp-fn-r"></div>
+    <div class="info-strip">
+      <div class="info-block">
+        <h3>Topic rates</h3>
+        <div id="hz-info">&mdash;</div>
       </div>
-      <div class="smp-body">
-        <div class="smp-mods" id="smp-mods"></div>
-        <div class="smp-cap"></div>
-        <div class="smp-quickwrap">
-          <div class="smp-quick" id="smp-quick"></div>
-          <div id="smp-fit"></div>
+      <div class="info-block">
+        <h3>Current pose</h3>
+        <div id="pose-readout">curr_pose: (no data)</div>
+      </div>
+    </div>
+  </section>
+  <!-- RIGHT — control panel: tilt preview / axes / buttons / control -->
+  <aside class="control-col">
+    <div class="card">
+      <h2>SpaceMouse Tilt &mdash; 3D Preview</h2>
+      <div id="three-container"></div>
+    </div>
+    <div class="card">
+      <h2>Axes &mdash; spacenav/twist</h2>
+      <div class="axis-group" id="axisGroup"></div>
+    </div>
+    <div class="card">
+      <h2>Buttons &mdash; SpaceMouse Pro</h2>
+      <div class="smp-device" id="btnPad">
+        <div class="smp-fnrow">
+          <div class="smp-fnpair" id="smp-fn-l"></div>
+          <div class="smp-fnpair" id="smp-fn-r"></div>
+        </div>
+        <div class="smp-body">
+          <div class="smp-mods" id="smp-mods"></div>
+          <div class="smp-cap"></div>
+          <div class="smp-quickwrap">
+            <div class="smp-quick" id="smp-quick"></div>
+            <div id="smp-fit"></div>
+          </div>
+        </div>
+        <div class="smp-cap-note">label &middot; small number = <code>spacenav/joy</code> buttons[i]</div>
+        <div class="smp-warn">&#9888; Avoid pressing 3+ buttons at once &mdash; the device may report a phantom button (matrix ghosting).</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Control</h2>
+      <div id="pose-controls">
+        <div class="pose-btn-row">
+          <button class="pose-btn" id="btn-identity">Set Identity</button>
+          <button class="pose-btn" id="btn-offset">Set Offset</button>
+        </div>
+        <div class="pose-slider-row">
+          <label>trans (m/s)</label>
+          <input type="range" id="slider-trans" min="0" max="1" step="0.01" value="0.1">
+          <span class="sval" id="val-trans">0.100</span>
+        </div>
+        <div class="pose-slider-row">
+          <label>rot (rad/s)</label>
+          <input type="range" id="slider-rot" min="0" max="3" step="0.05" value="1.0">
+          <span class="sval" id="val-rot">1.000</span>
         </div>
       </div>
-      <div class="smp-cap-note">label &middot; small number = <code>spacenav/joy</code> buttons[i]</div>
-      <div class="smp-warn">&#9888; Avoid pressing 3+ buttons at once &mdash; the device may report a phantom button (matrix ghosting).</div>
     </div>
-  </div>
-  <div class="panel">
-    <h2>Current Pose &mdash; spacenav/curr_pose</h2>
-    <div id="pose-container"></div>
-    <div id="pose-readout">curr_pose: (no data)</div>
-    <div id="pose-controls">
-      <div class="pose-btn-row">
-        <button class="pose-btn" id="btn-identity">Set Identity</button>
-        <button class="pose-btn" id="btn-offset">Set Offset</button>
-      </div>
-      <div class="pose-slider-row">
-        <label>trans (m/s)</label>
-        <input type="range" id="slider-trans" min="0" max="1" step="0.01" value="0.1">
-        <span class="sval" id="val-trans">0.100</span>
-      </div>
-      <div class="pose-slider-row">
-        <label>rot (rad/s)</label>
-        <input type="range" id="slider-rot" min="0" max="3" step="0.05" value="1.0">
-        <span class="sval" id="val-rot">1.000</span>
-      </div>
-    </div>
-  </div>
+  </aside>
 </div>
 
 <script>
-// ─── Data polling (same port, /data endpoint) ─────────────────
-const statusEl = document.getElementById('status');
+// ─── Status pills + data polling (same port, /data endpoint) ──
+const serverPill = document.getElementById('server-status');
+const serverSub = document.getElementById('server-sub');
+const devicePill = document.getElementById('device-status');
+const deviceSub = document.getElementById('device-sub');
 window.latestData = null;
 let connected = false;
+
+function setServer(ok) {
+  serverPill.classList.toggle('ok', ok);
+  serverPill.classList.toggle('bad', !ok);
+  serverSub.textContent = ok ? 'connected' : 'disconnected';
+}
+function setDevice(state, detail) {
+  devicePill.classList.toggle('ok', state === 'ok');
+  devicePill.classList.toggle('warn', state === 'warn');
+  devicePill.classList.toggle('bad', state === 'bad');
+  deviceSub.textContent = detail;
+}
+setServer(false);
+setDevice('unknown', 'unknown');
 
 async function pollData() {
   try {
     const resp = await fetch('/data');
     if (resp.ok) {
       window.latestData = await resp.json();
-      if (!connected) {
-        connected = true;
-        statusEl.textContent = 'Connected';
-        statusEl.className = 'connected';
-      }
+      connected = true;
+      setServer(true);
     }
   } catch (e) {
-    if (connected) {
-      connected = false;
-      statusEl.textContent = 'Disconnected';
-      statusEl.className = '';
-    }
+    connected = false;
+    setServer(false);
+    setDevice('unknown', 'no server');
   }
 }
 setInterval(pollData, 33);
 pollData();
+
+// Device status. The driver streams ZERO twist/joy even with no SpaceMouse
+// plugged in, so "connected" alone is misleading: we show active only when
+// real input arrives, "no input" while frames are all-zero, "no data" if the
+// stream stops entirely.
+function updateDevice(d) {
+  const dev = d && d.device;
+  if (!dev) { setDevice('unknown', 'unknown'); return; }
+  const state = dev.state || (dev.streaming ? 'idle' : 'offline');
+  if (state === 'active') {
+    const hz = dev.twist_hz || dev.joy_hz || 0;
+    setDevice('ok', 'active \u00b7 ' + hz.toFixed(0) + ' Hz');
+  } else if (state === 'idle') {
+    setDevice('warn', 'no input');
+  } else {
+    setDevice('bad', 'no data');
+  }
+}
+
+// Topic rates for the left info strip; stale streams render greyed out.
+const hzInfo = document.getElementById('hz-info');
+function updateHz(d) {
+  if (!d || !d.hz) { hzInfo.innerHTML = '&mdash;'; return; }
+  hzInfo.innerHTML = Object.entries(d.hz).map(([t, hz]) => {
+    const stale = !(hz > 0);
+    const name = t.replace('spacenav/', '');
+    return '<div class="hz-row' + (stale ? ' stale' : '') + '">' +
+           '<span class="t">' + name + '</span>' +
+           '<span class="v">' + hz.toFixed(1) + ' Hz</span></div>';
+  }).join('');
+}
 
 // ─── Axis bars setup ──────────────────────────────────────────
 const axisLabels = [
@@ -317,22 +402,6 @@ function smpKey(i, extra) {
 function updateButtons(buttons) {
   for (const i in smpKeyEls)
     smpKeyEls[i].classList.toggle('pressed', buttons[Number(i)] === 1);
-}
-
-// ─── Joy grid ─────────────────────────────────────────────────
-const joyLabels = ['vX', 'vY', 'vZ', 'wX', 'wY', 'wZ'];
-const joyGrid = document.getElementById('joyGrid');
-const joyCells = [];
-joyLabels.forEach((l, i) => {
-  const cell = document.createElement('div');
-  cell.className = 'joy-cell';
-  cell.innerHTML = `<div class="label">${l}</div><div class="value" id="joy_${i}">0.000</div>`;
-  joyGrid.appendChild(cell);
-  joyCells.push(cell.querySelector(`#joy_${i}`));
-});
-function updateJoy(axes) {
-  for (let i = 0; i < Math.min(axes.length, joyCells.length); i++)
-    joyCells[i].textContent = axes[i].toFixed(3);
 }
 </script>
 
@@ -435,10 +504,17 @@ const poseQuat = new THREE.Quaternion();
 // ─── Current Pose panel controls ─────────────────────────────
 function updatePoseReadout(d) {
   const el = document.getElementById('pose-readout');
+  const hud = document.getElementById('pose-hud');
   const cp = d && d.curr_pose;
-  if (!cp) { el.textContent = 'curr_pose: (no data)'; return; }
+  if (!cp) {
+    el.textContent = 'curr_pose: (no data)';
+    hud.textContent = 'curr_pose: (no data)';
+    return;
+  }
+  const pos = `[${cp.px.toFixed(3)}, ${cp.py.toFixed(3)}, ${cp.pz.toFixed(3)}]`;
+  hud.innerHTML = `<b>pos</b> ${pos}`;
   el.innerHTML =
-    `pos&nbsp; [${cp.px.toFixed(3)}, ${cp.py.toFixed(3)}, ${cp.pz.toFixed(3)}]<br>` +
+    `pos&nbsp; ${pos}<br>` +
     `quat [${cp.qx.toFixed(3)}, ${cp.qy.toFixed(3)}, ${cp.qz.toFixed(3)}, ${cp.qw.toFixed(3)}]`;
 }
 
@@ -515,15 +591,10 @@ function maybeInitParams(d) {
   if (d) {
     updateAxes(d.twist);
     updateButtons(d.joy.buttons || []);
-    updateJoy(d.joy.axes || []);
     updatePoseReadout(d);
+    updateHz(d);
+    updateDevice(d);
     maybeInitParams(d);
-    if (d.hz) {
-      const info = document.getElementById('topic-info');
-      info.innerHTML = Object.entries(d.hz)
-        .map(([t, hz]) => `${t} <span>${hz} Hz</span>`)
-        .join('<br>');
-    }
   }
 
   rawViewer.controls.update();
