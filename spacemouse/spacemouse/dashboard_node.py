@@ -65,14 +65,11 @@ class _HzTracker:
 
 
 class DashboardNode(Node):
-    # Topic -> (publishing node, bool parameter that gates it).
+    # Topic -> pose_node bool parameter that gates it. Only the pose_node
+    # outputs are toggleable; the spacenav driver topics always publish.
     _PUBLISH_TOPICS = {
-        'spacenav/twist': ('spacenav', 'publish_twist'),
-        'spacenav/offset': ('spacenav', 'publish_offset'),
-        'spacenav/rot_offset': ('spacenav', 'publish_rot_offset'),
-        'spacenav/joy': ('spacenav', 'publish_joy'),
-        'spacenav/curr_pose': ('pose', 'publish_curr_pose'),
-        'spacenav/delta_pose': ('pose', 'publish_delta_pose'),
+        'spacemouse/curr_pose': 'publish_curr_pose',
+        'spacemouse/delta_pose': 'publish_delta_pose',
     }
 
     def __init__(self):
@@ -84,10 +81,6 @@ class DashboardNode(Node):
         self.declare_parameter('pose_node_name', 'pose_node')
         self._pose_node_name = str(
             self.get_parameter('pose_node_name').value)
-
-        self.declare_parameter('spacenav_node_name', 'spacenav_node')
-        self._spacenav_node_name = str(
-            self.get_parameter('spacenav_node_name').value)
 
         self._web_dir = os.path.join(
             get_package_share_directory('spacemouse'), 'web'
@@ -131,8 +124,8 @@ class DashboardNode(Node):
             'spacenav/offset': _HzTracker(),
             'spacenav/rot_offset': _HzTracker(),
             'spacenav/joy': _HzTracker(),
-            'spacenav/curr_pose': _HzTracker(),
-            'spacenav/delta_pose': _HzTracker(),
+            'spacemouse/curr_pose': _HzTracker(),
+            'spacemouse/delta_pose': _HzTracker(),
         }
 
         # Subscribers
@@ -141,21 +134,17 @@ class DashboardNode(Node):
         self.create_subscription(Vector3, 'spacenav/rot_offset', self._rot_offset_cb, 10)
         self.create_subscription(Joy, 'spacenav/joy', self._joy_cb, 10)
         self.create_subscription(
-            PoseStamped, 'spacenav/curr_pose', self._curr_pose_cb, 10)
+            PoseStamped, 'spacemouse/curr_pose', self._curr_pose_cb, 10)
         self.create_subscription(
-            PoseStamped, 'spacenav/delta_pose', self._delta_pose_cb, 10)
+            PoseStamped, 'spacemouse/delta_pose', self._delta_pose_cb, 10)
 
         # Publisher + parameter service clients to drive pose_node (dashboard -> ROS)
         self._set_pose_pub = self.create_publisher(
-            PoseStamped, 'spacenav/set_pose', 10)
+            PoseStamped, 'spacemouse/set_pose', 10)
         self._set_param_cli = self.create_client(
             SetParameters, f'{self._pose_node_name}/set_parameters')
         self._get_param_cli = self.create_client(
             GetParameters, f'{self._pose_node_name}/get_parameters')
-        self._set_param_cli_sn = self.create_client(
-            SetParameters, f'{self._spacenav_node_name}/set_parameters')
-        self._get_param_cli_sn = self.create_client(
-            GetParameters, f'{self._spacenav_node_name}/get_parameters')
 
         # Command bridge + periodic parameter refresh.
         self.create_timer(0.05, self._flush_commands)
@@ -205,12 +194,12 @@ class DashboardNode(Node):
                 self._last_activity = time.monotonic()
 
     def _curr_pose_cb(self, msg: PoseStamped):
-        self._hz['spacenav/curr_pose'].tick()
+        self._hz['spacemouse/curr_pose'].tick()
         with self.data_lock:
             self.data['curr_pose'] = self._pose_to_dict(msg.pose)
 
     def _delta_pose_cb(self, msg: PoseStamped):
-        self._hz['spacenav/delta_pose'].tick()
+        self._hz['spacemouse/delta_pose'].tick()
         with self.data_lock:
             self.data['delta_pose'] = self._pose_to_dict(msg.pose)
 
@@ -401,66 +390,48 @@ class DashboardNode(Node):
         future.add_done_callback(_done)
 
     def _apply_publish(self, updates):
-        clients = {'pose': self._set_param_cli,
-                   'spacenav': self._set_param_cli_sn}
-        by_node = {'pose': [], 'spacenav': []}
+        if not self._set_param_cli.service_is_ready():
+            self.get_logger().warn(
+                'pose_node set_parameters unavailable; '
+                'cannot toggle publishing')
+            return
+        req = SetParameters.Request()
         for topic, enabled in updates.items():
-            node_kind, param = self._PUBLISH_TOPICS[topic]
-            by_node[node_kind].append((param, bool(enabled)))
-        for node_kind, items in by_node.items():
-            if not items:
-                continue
-            cli = clients[node_kind]
-            if not cli.service_is_ready():
-                self.get_logger().warn(
-                    f'{node_kind} set_parameters unavailable; '
-                    'cannot toggle publishing')
-                continue
-            req = SetParameters.Request()
-            for param, enabled in items:
-                pmsg = ParameterMsg()
-                pmsg.name = param
-                pmsg.value.type = ParameterType.PARAMETER_BOOL
-                pmsg.value.bool_value = enabled
-                req.parameters.append(pmsg)
+            pmsg = ParameterMsg()
+            pmsg.name = self._PUBLISH_TOPICS[topic]
+            pmsg.value.type = ParameterType.PARAMETER_BOOL
+            pmsg.value.bool_value = bool(enabled)
+            req.parameters.append(pmsg)
 
-            def _done(fut):
-                try:
-                    fut.result()
-                except Exception as exc:  # noqa: BLE001
-                    self.get_logger().warn(f'publish toggle failed: {exc}')
-            cli.call_async(req).add_done_callback(_done)
+        def _done(fut):
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(f'publish toggle failed: {exc}')
+        self._set_param_cli.call_async(req).add_done_callback(_done)
 
     def _refresh_publish_state(self):
-        groups = {
-            'pose': (self._get_param_cli,
-                     ['publish_curr_pose', 'publish_delta_pose']),
-            'spacenav': (self._get_param_cli_sn,
-                         ['publish_twist', 'publish_offset',
-                          'publish_rot_offset', 'publish_joy']),
-        }
-        for node_kind, (cli, names) in groups.items():
-            if not cli.service_is_ready():
-                continue
-            rev = {p: t for t, (nk, p) in self._PUBLISH_TOPICS.items()
-                   if nk == node_kind}
-            req = GetParameters.Request()
-            req.names = names
+        if not self._get_param_cli.service_is_ready():
+            return
+        names = list(self._PUBLISH_TOPICS.values())
+        rev = {p: t for t, p in self._PUBLISH_TOPICS.items()}
+        req = GetParameters.Request()
+        req.names = names
+        future = self._get_param_cli.call_async(req)
 
-            def _done(fut, names=names, rev=rev):
-                try:
-                    resp = fut.result()
-                except Exception:  # noqa: BLE001
-                    return
-                values = getattr(resp, 'values', None)
-                if not values:
-                    return
-                with self.data_lock:
-                    for name, pv in zip(names, values):
-                        if (pv.type == ParameterType.PARAMETER_BOOL
-                                and name in rev):
-                            self._publish_state[rev[name]] = pv.bool_value
-            cli.call_async(req).add_done_callback(_done)
+        def _done(fut):
+            try:
+                resp = fut.result()
+            except Exception:  # noqa: BLE001
+                return
+            values = getattr(resp, 'values', None)
+            if not values:
+                return
+            with self.data_lock:
+                for name, pv in zip(names, values):
+                    if pv.type == ParameterType.PARAMETER_BOOL and name in rev:
+                        self._publish_state[rev[name]] = pv.bool_value
+        future.add_done_callback(_done)
 
     def _start_http_server(self):
         node_ref = self

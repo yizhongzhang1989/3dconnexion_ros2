@@ -17,7 +17,7 @@ Can be used **standalone** or as a **git submodule** inside an existing workspac
 - Real-time axis bar charts (linear + angular)
 - Named button panel laid out like the physical SpaceMouse Pro (15 buttons)
 - Raw joystick value readout
-- Per-topic publish switches (ROS parameter, dashboard checkbox, or HTTP API)
+- Pose outputs (`curr_pose` / `delta_pose`) toggleable at launch, by ROS parameter, dashboard checkbox, or HTTP API
 - Configurable via launch arguments or YAML
 
 ## Prerequisites
@@ -103,6 +103,8 @@ ros2 launch spacemouse dashboard.launch.py
 | `max_trans_speed`| `0.1`   | `spacemouse.launch.py`: translation speed (m/s) at axis = 1. |
 | `max_rot_speed`  | `1.0`   | `spacemouse.launch.py`: rotation speed (rad/s) at axis = 1. |
 | `integration_frame` | `world` | `spacemouse.launch.py`: accumulate deltas in `body` or `world` frame. |
+| `publish_curr_pose` | `true` | `spacemouse.launch.py`: publish `spacemouse/curr_pose` at launch (runtime-toggleable). |
+| `publish_delta_pose` | `true` | `spacemouse.launch.py`: publish `spacemouse/delta_pose` at launch (runtime-toggleable). |
 | `http_port`      | `8080`  | `dashboard.launch.py`: HTTP port for the web UI + data.  |
 
 ```bash
@@ -128,9 +130,9 @@ default 100 Hz). It runs by default and works independently of the dashboard.
 
 | Topic                 | Type                            | Direction  | Description |
 |-----------------------|---------------------------------|------------|-------------|
-| `spacenav/curr_pose`  | `geometry_msgs/msg/PoseStamped` | published  | Accumulated pose |
-| `spacenav/delta_pose` | `geometry_msgs/msg/PoseStamped` | published  | Per-tick incremental pose |
-| `spacenav/set_pose`   | `geometry_msgs/msg/PoseStamped` | subscribed | Explicitly reset `curr_pose` |
+| `spacemouse/curr_pose`  | `geometry_msgs/msg/PoseStamped` | published  | Accumulated pose |
+| `spacemouse/delta_pose` | `geometry_msgs/msg/PoseStamped` | published  | Per-tick incremental pose |
+| `spacemouse/set_pose`   | `geometry_msgs/msg/PoseStamped` | subscribed | Explicitly reset `curr_pose` |
 
 Each tick advances by `axis × max_speed / pose_frequency` — e.g. with
 `max_trans_speed = 0.1` m/s at 100 Hz, a fully deflected axis moves `0.001` m per
@@ -150,8 +152,8 @@ message. `curr_pose` is the running accumulation of `delta_pose`.
 | `input_topic` | `spacenav/joy` | Source axes topic |
 | `pose_frame_id` | `spacenav_origin` | `header.frame_id` of the poses |
 | `publish_tf` | `false` | Also broadcast `curr_pose` on TF |
-| `publish_curr_pose` | `true` | Publish `spacenav/curr_pose` ([toggle](#toggling-topic-publishing)) |
-| `publish_delta_pose` | `true` | Publish `spacenav/delta_pose` ([toggle](#toggling-topic-publishing)) |
+| `publish_curr_pose` | `true` | Publish `spacemouse/curr_pose` ([toggle](#toggling-topic-publishing)) |
+| `publish_delta_pose` | `true` | Publish `spacemouse/delta_pose` ([toggle](#toggling-topic-publishing)) |
 
 #### ROS API examples
 
@@ -197,24 +199,24 @@ ros2 param load /pose_node pose_params.yaml
 ```
 
 **Set the pose** — publish a `geometry_msgs/msg/PoseStamped` on
-`spacenav/set_pose`; `curr_pose` jumps to it and keeps integrating from there.
+`spacemouse/set_pose`; `curr_pose` jumps to it and keeps integrating from there.
 
 ```bash
 # reset to identity (origin, no rotation)
-ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+ros2 topic pub --once spacemouse/set_pose geometry_msgs/msg/PoseStamped \
   '{pose: {orientation: {w: 1.0}}}'
 
 # position only — (0.5, 0.0, 0.2), no rotation
-ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+ros2 topic pub --once spacemouse/set_pose geometry_msgs/msg/PoseStamped \
   '{pose: {position: {x: 0.5, y: 0.0, z: 0.2}, orientation: {w: 1.0}}}'
 
 # position + orientation — quaternion for 45° about Z (yaw)
-ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+ros2 topic pub --once spacemouse/set_pose geometry_msgs/msg/PoseStamped \
   '{pose: {position: {x: 0.5, y: 0.0, z: 0.2},
            orientation: {x: 0.0, y: 0.0, z: 0.3827, w: 0.9239}}}'
 
 # include an explicit header frame
-ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+ros2 topic pub --once spacemouse/set_pose geometry_msgs/msg/PoseStamped \
   '{header: {frame_id: spacenav_origin},
     pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}'
 ```
@@ -233,58 +235,58 @@ ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
 **Watch the result**
 
 ```bash
-ros2 topic echo spacenav/curr_pose    # accumulated pose
-ros2 topic echo spacenav/delta_pose   # per-tick increment
+ros2 topic echo spacemouse/curr_pose    # accumulated pose
+ros2 topic echo spacemouse/delta_pose   # per-tick increment
 ```
 
 The dashboard's **Current Pose** panel mirrors all of this: the **Control** card
 has editable `x/y/z` + `roll/pitch/yaw` offset fields with **Set Offset** / **Set
-Identity** buttons (which publish to `spacenav/set_pose`) and live speed sliders
+Identity** buttons (which publish to `spacemouse/set_pose`) and live speed sliders
 (which call `ros2 param set` under the hood).
 
 ### Toggling topic publishing
 
-Each topic can be switched **on or off** independently — handy to cut bus traffic
-or isolate a signal. Every topic is gated by a boolean parameter on the node that
-publishes it; **all default to `true`**, so behaviour is unchanged until you flip
-one:
+The two `pose_node` outputs — `spacemouse/curr_pose` and `spacemouse/delta_pose`
+— can be switched **on or off** independently, handy to cut bus traffic or
+isolate a signal. Each is gated by a boolean parameter; **both default to
+`true`**. (The four `spacenav` driver topics always publish and are not
+toggleable.)
 
-| Topic                 | Parameter            | Node            |
-|-----------------------|----------------------|-----------------|
-| `spacenav/twist`      | `publish_twist`      | `spacenav_node` |
-| `spacenav/offset`     | `publish_offset`     | `spacenav_node` |
-| `spacenav/rot_offset` | `publish_rot_offset` | `spacenav_node` |
-| `spacenav/joy`        | `publish_joy`        | `spacenav_node` |
-| `spacenav/curr_pose`  | `publish_curr_pose`  | `pose_node`     |
-| `spacenav/delta_pose` | `publish_delta_pose` | `pose_node`     |
+| Topic                   | Parameter            | Node        |
+|-------------------------|----------------------|-------------|
+| `spacemouse/curr_pose`  | `publish_curr_pose`  | `pose_node` |
+| `spacemouse/delta_pose` | `publish_delta_pose` | `pose_node` |
 
-There are three equivalent ways to flip a switch:
+There are four equivalent ways to set them:
 
-**1. ROS parameter** (live, no restart):
+**1. Launch argument** — choose whether each publishes at launch:
 
 ```bash
-ros2 param set /spacenav_node publish_twist false     # stop spacenav/twist
-ros2 param set /pose_node     publish_curr_pose false  # stop spacenav/curr_pose
-ros2 param set /spacenav_node publish_twist true       # resume it
+ros2 launch spacemouse spacemouse.launch.py publish_delta_pose:=false
 ```
 
-**2. Dashboard checkbox** — the topic-rate list (bottom-left of the 3D canvas)
-has a checkbox before each topic; unchecking it stops that topic.
+**2. ROS parameter** (live, no restart):
 
-**3. Dashboard HTTP API** — `POST /publish` with a `topic` and an `enabled` flag:
+```bash
+ros2 param set /pose_node publish_curr_pose false  # stop spacemouse/curr_pose
+ros2 param set /pose_node publish_curr_pose true   # resume it
+```
+
+**3. Dashboard checkbox** — the topic-rate list (bottom-left of the 3D canvas)
+shows a checkbox before `curr_pose` and `delta_pose`; unchecking it stops that
+topic.
+
+**4. Dashboard HTTP API** — `POST /publish` with a `topic` and an `enabled` flag:
 
 ```bash
 curl -X POST -H 'Content-Type: application/json' \
-  -d '{"topic": "spacenav/joy", "enabled": false}' \
+  -d '{"topic": "spacemouse/curr_pose", "enabled": false}' \
   http://localhost:8080/publish
 ```
 
-All three stay in sync: the dashboard reads the live parameter values back, so a
-change made with `ros2 param set` shows up in the checkboxes, and vice versa.
-
-> **Note:** The four `publish_*` switches live in the bundled `spacenav` driver,
-> so rebuild and relaunch it (`colcon build --packages-select spacenav`) if you
-> are upgrading from an older checkout.
+The runtime methods stay in sync: the dashboard reads the live parameter values
+back, so a change made with `ros2 param set` shows up in the checkbox, and vice
+versa.
 
 ## Buttons (SpaceMouse Pro)
 

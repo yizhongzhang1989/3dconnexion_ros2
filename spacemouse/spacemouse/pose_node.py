@@ -4,11 +4,11 @@ Subscribes to the normalized 6-DOF axes published by the ``spacenav`` driver
 (``spacenav/joy``) and integrates them, at a fixed configurable rate, into two
 poses:
 
-* ``spacenav/delta_pose`` — the incremental motion produced in one tick.
-* ``spacenav/curr_pose``  — the running accumulation of those deltas.
+* ``spacemouse/delta_pose`` — the incremental motion produced in one tick.
+* ``spacemouse/curr_pose``  — the running accumulation of those deltas.
 
 Both are ``geometry_msgs/msg/PoseStamped`` (translation vector + quaternion).
-``spacenav/set_pose`` (PoseStamped) explicitly resets ``curr_pose``.
+``spacemouse/set_pose`` (PoseStamped) explicitly resets ``curr_pose``.
 
 This node is the core "pose output" function and runs independently of the web
 dashboard.
@@ -118,12 +118,12 @@ class PoseNode(Node):
 
         # ── Interfaces ──
         self._pub_curr = self.create_publisher(
-            PoseStamped, 'spacenav/curr_pose', 10)
+            PoseStamped, 'spacemouse/curr_pose', 10)
         self._pub_delta = self.create_publisher(
-            PoseStamped, 'spacenav/delta_pose', 10)
+            PoseStamped, 'spacemouse/delta_pose', 10)
         self.create_subscription(Joy, self._input_topic, self._on_joy, 10)
         self.create_subscription(
-            PoseStamped, 'spacenav/set_pose', self._on_set_pose, 10)
+            PoseStamped, 'spacemouse/set_pose', self._on_set_pose, 10)
 
         self._tf_broadcaster = None
         if self._publish_tf:

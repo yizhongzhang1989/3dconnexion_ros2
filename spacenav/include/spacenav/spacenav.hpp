@@ -79,10 +79,6 @@ private:
   double static_rot_deadband;
   bool use_twist_stamped;
   int num_buttons;
-  bool publish_twist;
-  bool publish_offset;
-  bool publish_rot_offset;
-  bool publish_joy;
 
   spnav_event sev;
   bool joy_stale = false;

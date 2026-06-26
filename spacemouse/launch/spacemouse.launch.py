@@ -25,6 +25,8 @@ def generate_launch_description():
     max_trans_speed = LaunchConfiguration('max_trans_speed')
     max_rot_speed = LaunchConfiguration('max_rot_speed')
     integration_frame = LaunchConfiguration('integration_frame')
+    publish_curr_pose = LaunchConfiguration('publish_curr_pose')
+    publish_delta_pose = LaunchConfiguration('publish_delta_pose')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -46,6 +48,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'integration_frame', default_value='world',
             description="Pose accumulation frame: 'body' or 'world'."),
+        DeclareLaunchArgument(
+            'publish_curr_pose', default_value='true',
+            description='Publish spacemouse/curr_pose at launch '
+                        '(also toggleable at runtime).'),
+        DeclareLaunchArgument(
+            'publish_delta_pose', default_value='true',
+            description='Publish spacemouse/delta_pose at launch '
+                        '(also toggleable at runtime).'),
 
         # spacenav driver — always launched
         Node(
@@ -79,6 +89,10 @@ def generate_launch_description():
                     max_rot_speed, value_type=float),
                 'integration_frame': ParameterValue(
                     integration_frame, value_type=str),
+                'publish_curr_pose': ParameterValue(
+                    publish_curr_pose, value_type=bool),
+                'publish_delta_pose': ParameterValue(
+                    publish_delta_pose, value_type=bool),
             }],
         ),
 

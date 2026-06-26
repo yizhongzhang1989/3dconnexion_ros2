@@ -89,7 +89,9 @@
   .canvas-overlay .ov-h:first-child { margin-top: 0; }
   .hz-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .hz-left { display: flex; align-items: center; gap: 6px; pointer-events: auto; cursor: pointer; }
+  .hz-left.hz-static { cursor: default; }
   .hz-cb { width: 12px; height: 12px; margin: 0; accent-color: var(--blue); cursor: pointer; flex-shrink: 0; }
+  .hz-cb-spacer { width: 12px; height: 12px; flex-shrink: 0; }
   .hz-row .t { color: rgba(255,255,255,0.6); }
   .hz-row .v { color: var(--green); }
   .hz-row.stale .v { color: var(--muted); }
@@ -178,7 +180,7 @@
 <div class="layout">
   <!-- LEFT — current-pose 3D canvas + basic info (topic hz, current pose) -->
   <section class="card canvas-col">
-    <h2>Current Pose &mdash; spacenav/curr_pose</h2>
+    <h2>Current Pose &mdash; spacemouse/curr_pose</h2>
     <div id="pose-container">
       <div id="hz-overlay" class="canvas-overlay bl">&mdash;</div>
       <div id="pose-overlay" class="canvas-overlay br">curr_pose: (no data)</div>
@@ -308,35 +310,46 @@ function updateDevice(d) {
 // (bottom-left); stale streams greyed out.
 const hzInfo = document.getElementById('hz-overlay');
 const hzRows = {};
-function buildHzRows(topics) {
+function buildHzRows(topics, publishable) {
   hzInfo.innerHTML = '';
   for (const t of topics) {
     const row = document.createElement('div');
     row.className = 'hz-row';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.className = 'hz-cb'; cb.checked = true;
-    cb.addEventListener('change', () => {
-      fetch('/publish', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: t, enabled: cb.checked }),
-      }).catch(() => {});
-    });
-    const left = document.createElement('label');
-    left.className = 'hz-left';
-    left.title = 'publish ' + t;
-    const nm = document.createElement('span');
-    nm.className = 't'; nm.textContent = t.replace('spacenav/', '');
-    left.append(cb, nm);
+    const name = t.replace(/^space(nav|mouse)\//, '');
     const vv = document.createElement('span');
     vv.className = 'v'; vv.textContent = '0.0 Hz';
-    row.append(left, vv);
+    const nm = document.createElement('span');
+    nm.className = 't'; nm.textContent = name;
+    let cb = null;
+    if (t in publishable) {
+      cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'hz-cb'; cb.checked = true;
+      cb.addEventListener('change', () => {
+        fetch('/publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: t, enabled: cb.checked }),
+        }).catch(() => {});
+      });
+      const left = document.createElement('label');
+      left.className = 'hz-left';
+      left.title = 'publish ' + t;
+      left.append(cb, nm);
+      row.append(left, vv);
+    } else {
+      const left = document.createElement('span');
+      left.className = 'hz-left hz-static';
+      const sp = document.createElement('span');
+      sp.className = 'hz-cb-spacer';
+      left.append(sp, nm);
+      row.append(left, vv);
+    }
     hzInfo.appendChild(row);
     hzRows[t] = { row, val: vv, cb, last: null };
   }
 }
 function updateHz(d) {
   if (!d || !d.hz) return;
-  if (!Object.keys(hzRows).length) buildHzRows(Object.keys(d.hz));
+  if (!Object.keys(hzRows).length) buildHzRows(Object.keys(d.hz), d.publish_state || {});
   const ps = d.publish_state || {};
   for (const t in hzRows) {
     const r = hzRows[t];
@@ -345,7 +358,7 @@ function updateHz(d) {
       r.val.textContent = hz.toFixed(1) + ' Hz';
       r.row.classList.toggle('stale', !(hz > 0));
     }
-    if (t in ps && ps[t] !== r.last) { r.cb.checked = ps[t]; r.last = ps[t]; }
+    if (r.cb && t in ps && ps[t] !== r.last) { r.cb.checked = ps[t]; r.last = ps[t]; }
   }
 }
 
@@ -584,7 +597,7 @@ const SMOOTH = 0.2;       // easing toward the target each frame
 const rawTargetQuat = new THREE.Quaternion();
 const rawTargetPos = new THREE.Vector3();
 
-// Viewer 2 — current pose (driven directly by spacenav/curr_pose): a global
+// Viewer 2 — current pose (driven directly by spacemouse/curr_pose): a global
 // frame drawn as 3 wires at the origin + the live pose as a bold cylinder-axis
 // frame (no cube).
 const poseViewer = makeScene(
