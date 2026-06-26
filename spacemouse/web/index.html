@@ -398,7 +398,7 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 
 // Build a self-contained scene (camera, lights, grid, controls) in a container.
-function makeScene(container, camDist = 7) {
+function makeScene(container, camDist = 7, showAxes = true) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x16213e);
 
@@ -433,7 +433,7 @@ function makeScene(container, camDist = 7) {
     new THREE.PlaneGeometry(10, 10),
     new THREE.ShadowMaterial({ opacity: 0.25 }));
   ground.position.z = -1.8; ground.receiveShadow = true; scene.add(ground);
-  scene.add(new THREE.AxesHelper(0.5));
+  if (showAxes) scene.add(new THREE.AxesHelper(0.5));
 
   const v = { scene, camera, renderer, controls };
   v.resize = () => {
@@ -477,6 +477,54 @@ function makeCube(scene, zScale = 1) {
   return { group, cube };
 }
 
+// Global coordinate frame at the world origin: just 3 colored wires (axis
+// lines X red, Y green, Z blue) — no arrowheads.
+function addGlobalFrame(scene, len = 1.9) {
+  const axes = [
+    [1, 0, 0, 0xe94560],
+    [0, 1, 0, 0x4ecca3],
+    [0, 0, 1, 0x00b4d8],
+  ];
+  for (const [x, y, z, color] of axes) {
+    const tip = new THREE.Vector3(x, y, z).multiplyScalar(len);
+    scene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), tip]),
+      new THREE.LineBasicMaterial({ color })));
+  }
+}
+
+// A bold axis = a cylinder shaft + cone head, built along +Y then oriented to
+// `dir`. Makes the coordinate frame thick and obvious.
+function axisCylinder(dir, color, len) {
+  const g = new THREE.Group();
+  const shaftLen = len * 0.8, headLen = len * 0.2;
+  const mat = new THREE.MeshPhysicalMaterial({
+    color, metalness: 0.2, roughness: 0.45 });
+  const shaft = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, shaftLen, 20), mat);
+  shaft.position.y = shaftLen / 2; shaft.castShadow = true;
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.15, headLen, 20), mat);
+  head.position.y = shaftLen + headLen / 2; head.castShadow = true;
+  g.add(shaft); g.add(head);
+  g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  return g;
+}
+
+// Current-pose marker: a bold coordinate frame whose X/Y/Z axes are cylinders
+// (no cube). Returned as a group so callers can pose it.
+function makePoseFrame(scene, len = 1.4) {
+  const group = new THREE.Group(); scene.add(group);
+  const axes = [
+    [1, 0, 0, 0xe94560],
+    [0, 1, 0, 0x4ecca3],
+    [0, 0, 1, 0x00b4d8],
+  ];
+  for (const [x, y, z, color] of axes) {
+    group.add(axisCylinder(new THREE.Vector3(x, y, z), color, len));
+  }
+  return { group };
+}
+
 // Viewer 1 — raw input preview: the cube tilts/shifts proportionally to the
 // current twist (no integration), easing back to neutral when input stops.
 const rawViewer = makeScene(document.getElementById('three-container'), 4.5);
@@ -485,9 +533,13 @@ const SMOOTH = 0.2;       // easing toward the target each frame
 const rawTargetQuat = new THREE.Quaternion();
 const rawTargetPos = new THREE.Vector3();
 
-// Viewer 2 — current pose frame (driven directly by spacenav/curr_pose).
-const poseViewer = makeScene(document.getElementById('pose-container'));
-const poseCube = makeCube(poseViewer.scene);
+// Viewer 2 — current pose (driven directly by spacenav/curr_pose): a global
+// frame drawn as 3 wires at the origin + the live pose as a bold cylinder-axis
+// frame (no cube).
+const poseViewer = makeScene(
+  document.getElementById('pose-container'), 7, false);
+addGlobalFrame(poseViewer.scene, 1.9);
+const poseCube = makePoseFrame(poseViewer.scene);
 const poseQuat = new THREE.Quaternion();
 
 // ─── Pose overlays on the canvas (bottom-right): delta + current pose ──
