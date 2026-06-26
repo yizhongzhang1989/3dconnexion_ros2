@@ -144,24 +144,100 @@ message. `curr_pose` is the running accumulation of `delta_pose`.
 | `max_trans_speed` | `0.1` | Translation speed (m/s) at axis = 1 |
 | `max_rot_speed` | `1.0` | Rotation speed (rad/s) at axis = 1 |
 | `integration_frame` | `world` | Accumulate deltas in `body` or `world` frame |
+| `deadzone` | `0.0` | Ignore axis magnitudes below this (`0`–`1`) |
+| `input_timeout` | `0.5` | Zero the input if no `joy` arrives for this long (s); `0` disables |
+| `input_topic` | `spacenav/joy` | Source axes topic |
 | `pose_frame_id` | `spacenav_origin` | `header.frame_id` of the poses |
 | `publish_tf` | `false` | Also broadcast `curr_pose` on TF |
 
-Example:
+#### ROS API examples
+
+Everything the dashboard does is plain ROS 2, so you can script it headless. The
+pose publisher runs as the node `/pose_node` — adjust the path below if you
+rename the node or run it under a namespace.
+
+**Inspect parameters**
 
 ```bash
-# reset curr_pose to identity
+ros2 param list /pose_node                  # all parameter names
+ros2 param get  /pose_node max_trans_speed  # read one value
+ros2 param dump /pose_node                  # print current values as YAML
+```
+
+**Set parameters (live — no restart)**
+
+```bash
+# translation / rotation speed at full axis deflection
+ros2 param set /pose_node max_trans_speed 0.2     # m/s
+ros2 param set /pose_node max_rot_speed   0.5     # rad/s
+
+# output rate and accumulation frame
+ros2 param set /pose_node publish_frequency 200.0 # Hz
+ros2 param set /pose_node integration_frame body  # 'body' or 'world'
+
+# ignore small inputs, or broadcast the pose on TF
+ros2 param set /pose_node deadzone   0.05
+ros2 param set /pose_node publish_tf true         # publishes curr_pose on /tf
+```
+
+Set several at once from a file:
+
+```bash
+cat > pose_params.yaml <<'EOF'
+/pose_node:
+  ros__parameters:
+    max_trans_speed: 0.15
+    max_rot_speed: 0.6
+    integration_frame: body
+EOF
+ros2 param load /pose_node pose_params.yaml
+```
+
+**Set the pose** — publish a `geometry_msgs/msg/PoseStamped` on
+`spacenav/set_pose`; `curr_pose` jumps to it and keeps integrating from there.
+
+```bash
+# reset to identity (origin, no rotation)
 ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
   '{pose: {orientation: {w: 1.0}}}'
 
-# change the translation speed live
-ros2 param set /pose_node max_trans_speed 0.2
+# position only — (0.5, 0.0, 0.2), no rotation
+ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+  '{pose: {position: {x: 0.5, y: 0.0, z: 0.2}, orientation: {w: 1.0}}}'
 
-ros2 topic echo spacenav/curr_pose
+# position + orientation — quaternion for 45° about Z (yaw)
+ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+  '{pose: {position: {x: 0.5, y: 0.0, z: 0.2},
+           orientation: {x: 0.0, y: 0.0, z: 0.3827, w: 0.9239}}}'
+
+# include an explicit header frame
+ros2 topic pub --once spacenav/set_pose geometry_msgs/msg/PoseStamped \
+  '{header: {frame_id: spacenav_origin},
+    pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}'
 ```
 
-The dashboard's **Current Pose** panel renders the `curr_pose` frame in 3D, with
-buttons to reset it to identity / an offset pose and sliders for the two speeds.
+> **Orientation is a quaternion `(x, y, z, w)`.** For a single rotation of `θ`
+> about one axis, `w = cos(θ/2)` and that axis's component `= sin(θ/2)`:
+>
+> | Rotation            | x | y | z | w |
+> |---------------------|---|---|---|---|
+> | none                | 0 | 0 | 0 | 1 |
+> | 45° about Z (yaw)   | 0 | 0 | 0.3827 | 0.9239 |
+> | 90° about Z (yaw)   | 0 | 0 | 0.7071 | 0.7071 |
+> | 90° about Y (pitch) | 0 | 0.7071 | 0 | 0.7071 |
+> | 90° about X (roll)  | 0.7071 | 0 | 0 | 0.7071 |
+
+**Watch the result**
+
+```bash
+ros2 topic echo spacenav/curr_pose    # accumulated pose
+ros2 topic echo spacenav/delta_pose   # per-tick increment
+```
+
+The dashboard's **Current Pose** panel mirrors all of this: the **Control** card
+has editable `x/y/z` + `roll/pitch/yaw` offset fields with **Set Offset** / **Set
+Identity** buttons (which publish to `spacenav/set_pose`) and live speed sliders
+(which call `ros2 param set` under the hood).
 
 ## Buttons (SpaceMouse Pro)
 

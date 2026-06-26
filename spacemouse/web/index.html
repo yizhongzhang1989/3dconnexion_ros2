@@ -145,6 +145,12 @@
   .pose-slider-row label { width: 84px; color: var(--muted); flex-shrink: 0; }
   .pose-slider-row input[type=range] { flex: 1; accent-color: var(--blue); }
   .pose-slider-row .sval { width: 50px; font-family: monospace; text-align: right; flex-shrink: 0; }
+  .offset-editor { display: flex; flex-direction: column; gap: 6px; }
+  .oe-title { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .oe-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .oe-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 0.62rem; color: var(--muted); }
+  .oe-grid input { width: 100%; background: var(--accent); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text); font-family: monospace; font-size: 0.74rem; padding: 4px 5px; }
+  .oe-grid input:focus { outline: none; border-color: var(--blue); }
 </style>
 <script type="importmap">
 {
@@ -211,6 +217,17 @@
         <div class="pose-btn-row">
           <button class="pose-btn" id="btn-identity">Set Identity</button>
           <button class="pose-btn" id="btn-offset">Set Offset</button>
+        </div>
+        <div class="offset-editor">
+          <div class="oe-title">Offset pose (used by Set Offset)</div>
+          <div class="oe-grid">
+            <label>x (m)<input type="number" id="off-x" step="0.05" value="0.5"></label>
+            <label>y (m)<input type="number" id="off-y" step="0.05" value="0"></label>
+            <label>z (m)<input type="number" id="off-z" step="0.05" value="0.2"></label>
+            <label>roll (&deg;)<input type="number" id="off-roll" step="5" value="0"></label>
+            <label>pitch (&deg;)<input type="number" id="off-pitch" step="5" value="0"></label>
+            <label>yaw (&deg;)<input type="number" id="off-yaw" step="5" value="45"></label>
+          </div>
         </div>
         <div class="pose-slider-row">
           <label>trans (m/s)</label>
@@ -576,30 +593,50 @@ async function postJSON(path, body) {
 
 document.getElementById('btn-identity').addEventListener('click',
   () => postJSON('/set_pose', { type: 'identity' }));
-document.getElementById('btn-offset').addEventListener('click',
-  () => postJSON('/set_pose', { type: 'offset' }));
+document.getElementById('btn-offset').addEventListener('click', () => {
+  const num = (id, dflt) => {
+    const v = parseFloat(document.getElementById(id).value);
+    return Number.isFinite(v) ? v : dflt;
+  };
+  const deg = Math.PI / 180;
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    num('off-roll', 0) * deg, num('off-pitch', 0) * deg,
+    num('off-yaw', 0) * deg, 'XYZ'));
+  postJSON('/set_pose', {
+    type: 'pose',
+    position: [num('off-x', 0), num('off-y', 0), num('off-z', 0)],
+    orientation: [q.x, q.y, q.z, q.w],
+  });
+});
 
 const transSlider = document.getElementById('slider-trans');
 const rotSlider = document.getElementById('slider-rot');
 const transVal = document.getElementById('val-trans');
 const rotVal = document.getElementById('val-rot');
-let paramsInit = false;
+let transEditing = false, rotEditing = false;
 function sendParams() {
   postJSON('/params', {
     max_trans_speed: parseFloat(transSlider.value),
     max_rot_speed: parseFloat(rotSlider.value),
   });
 }
-transSlider.addEventListener('input', () => { transVal.textContent = parseFloat(transSlider.value).toFixed(3); });
-rotSlider.addEventListener('input', () => { rotVal.textContent = parseFloat(rotSlider.value).toFixed(3); });
-transSlider.addEventListener('change', sendParams);
-rotSlider.addEventListener('change', sendParams);
-function maybeInitParams(d) {
-  if (paramsInit || !d || !d.pose_params) return;
+transSlider.addEventListener('input', () => { transEditing = true; transVal.textContent = parseFloat(transSlider.value).toFixed(3); });
+rotSlider.addEventListener('input', () => { rotEditing = true; rotVal.textContent = parseFloat(rotSlider.value).toFixed(3); });
+transSlider.addEventListener('change', () => { sendParams(); transEditing = false; });
+rotSlider.addEventListener('change', () => { sendParams(); rotEditing = false; });
+// Continuously reflect the live pose_node params (e.g. changed via ros2 param
+// set or another client) onto the sliders — except while the user is dragging.
+function syncParams(d) {
+  if (!d || !d.pose_params) return;
   const pp = d.pose_params;
-  if (pp.max_trans_speed != null) { transSlider.value = pp.max_trans_speed; transVal.textContent = Number(pp.max_trans_speed).toFixed(3); }
-  if (pp.max_rot_speed != null) { rotSlider.value = pp.max_rot_speed; rotVal.textContent = Number(pp.max_rot_speed).toFixed(3); }
-  paramsInit = true;
+  if (!transEditing && pp.max_trans_speed != null) {
+    const v = Number(pp.max_trans_speed);
+    if (transVal.textContent !== v.toFixed(3)) { transSlider.value = v; transVal.textContent = v.toFixed(3); }
+  }
+  if (!rotEditing && pp.max_rot_speed != null) {
+    const v = Number(pp.max_rot_speed);
+    if (rotVal.textContent !== v.toFixed(3)) { rotSlider.value = v; rotVal.textContent = v.toFixed(3); }
+  }
 }
 
 // ─── Render + animation loop ─────────────────────────────────
@@ -640,7 +677,7 @@ function maybeInitParams(d) {
     updatePoseReadout(d);
     updateHz(d);
     updateDevice(d);
-    maybeInitParams(d);
+    syncParams(d);
   }
 
   rawViewer.controls.update();
