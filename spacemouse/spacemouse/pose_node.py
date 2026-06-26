@@ -105,6 +105,10 @@ class PoseNode(Node):
             self.declare_parameter('input_timeout', 0.5).value)
         self._publish_tf = bool(
             self.declare_parameter('publish_tf', False).value)
+        self._publish_curr = bool(
+            self.declare_parameter('publish_curr_pose', True).value)
+        self._publish_delta = bool(
+            self.declare_parameter('publish_delta_pose', True).value)
 
         # ── State ──
         self._p = [0.0, 0.0, 0.0]          # accumulated position
@@ -217,6 +221,12 @@ class PoseNode(Node):
                         self._publish_tf = on
                     if on and self._tf_broadcaster is None and _HAS_TF2:
                         self._tf_broadcaster = TransformBroadcaster(self)
+                elif p.name == 'publish_curr_pose':
+                    with self._lock:
+                        self._publish_curr = bool(p.value)
+                elif p.name == 'publish_delta_pose':
+                    with self._lock:
+                        self._publish_delta = bool(p.value)
             except (ValueError, TypeError) as exc:
                 return SetParametersResult(successful=False, reason=str(exc))
 
@@ -241,6 +251,8 @@ class PoseNode(Node):
             last_input = self._last_input
             p = list(self._p)
             q = self._q
+            pub_curr = self._publish_curr
+            pub_delta = self._publish_delta
 
         dt = 1.0 / max(freq, 1e-3)
 
@@ -274,10 +286,12 @@ class PoseNode(Node):
             self._q = q_new
 
         stamp = now.to_msg()
-        self._pub_delta.publish(
-            self._make_pose(stamp, frame_id, d_trans, q_delta))
-        self._pub_curr.publish(
-            self._make_pose(stamp, frame_id, p_new, q_new))
+        if pub_delta:
+            self._pub_delta.publish(
+                self._make_pose(stamp, frame_id, d_trans, q_delta))
+        if pub_curr:
+            self._pub_curr.publish(
+                self._make_pose(stamp, frame_id, p_new, q_new))
 
         if self._publish_tf and self._tf_broadcaster is not None:
             self._broadcast_tf(stamp, frame_id, p_new, q_new)

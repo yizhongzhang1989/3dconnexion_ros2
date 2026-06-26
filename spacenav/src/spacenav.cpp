@@ -57,6 +57,10 @@
 #define SPACENAV_STATIC_ROT_DEADBAND_PARAM_S "static_rot_deadband"
 #define SPACENAV_USE_TWIST_STAMPED_PARAM_S "use_twist_stamped"
 #define SPACENAV_NUM_BUTTONS_PARAM_S "num_buttons"
+#define SPACENAV_PUBLISH_TWIST_PARAM_S "publish_twist"
+#define SPACENAV_PUBLISH_OFFSET_PARAM_S "publish_offset"
+#define SPACENAV_PUBLISH_ROT_OFFSET_PARAM_S "publish_rot_offset"
+#define SPACENAV_PUBLISH_JOY_PARAM_S "publish_joy"
 
 using namespace std::chrono_literals;
 
@@ -102,6 +106,16 @@ Spacenav::Spacenav(const rclcpp::NodeOptions & options)
   if (num_buttons > static_cast<int>(joystick_buttons.size())) {
     joystick_buttons.resize(num_buttons, 0);
   }
+
+  // Per-topic publish switches (toggle live via `ros2 param set`).
+  publish_twist = this->declare_parameter<bool>(
+    SPACENAV_PUBLISH_TWIST_PARAM_S, true);
+  publish_offset = this->declare_parameter<bool>(
+    SPACENAV_PUBLISH_OFFSET_PARAM_S, true);
+  publish_rot_offset = this->declare_parameter<bool>(
+    SPACENAV_PUBLISH_ROT_OFFSET_PARAM_S, true);
+  publish_joy = this->declare_parameter<bool>(
+    SPACENAV_PUBLISH_JOY_PARAM_S, true);
 
   auto param_change_callback = [this](
     std::vector<rclcpp::Parameter> parameters) {
@@ -216,6 +230,11 @@ void Spacenav::poll_spacenav()
   this->get_parameter<double>(
     SPACENAV_STATIC_ROT_DEADBAND_PARAM_S,
     static_rot_deadband);
+  this->get_parameter<bool>(SPACENAV_PUBLISH_TWIST_PARAM_S, publish_twist);
+  this->get_parameter<bool>(SPACENAV_PUBLISH_OFFSET_PARAM_S, publish_offset);
+  this->get_parameter<bool>(
+    SPACENAV_PUBLISH_ROT_OFFSET_PARAM_S, publish_rot_offset);
+  this->get_parameter<bool>(SPACENAV_PUBLISH_JOY_PARAM_S, publish_joy);
 
   bool queue_empty = false;
   while (!queue_empty) {
@@ -301,16 +320,22 @@ void Spacenav::poll_spacenav()
       msg_twist->linear = *msg_offset;
       msg_twist->angular = *msg_rot_offset;
 
-      publisher_offset->publish(std::move(msg_offset));
-      publisher_rot_offset->publish(std::move(msg_rot_offset));
-      if (use_twist_stamped) {
-        auto msg_twist_stamped =
-          std::make_unique<geometry_msgs::msg::TwistStamped>();
-        msg_twist_stamped->header.stamp = msg_joystick->header.stamp;
-        msg_twist_stamped->twist = *msg_twist;
-        publisher_twist_stamped->publish(std::move(msg_twist_stamped));
-      } else {
-        publisher_twist->publish(std::move(msg_twist));
+      if (publish_offset) {
+        publisher_offset->publish(std::move(msg_offset));
+      }
+      if (publish_rot_offset) {
+        publisher_rot_offset->publish(std::move(msg_rot_offset));
+      }
+      if (publish_twist) {
+        if (use_twist_stamped) {
+          auto msg_twist_stamped =
+            std::make_unique<geometry_msgs::msg::TwistStamped>();
+          msg_twist_stamped->header.stamp = msg_joystick->header.stamp;
+          msg_twist_stamped->twist = *msg_twist;
+          publisher_twist_stamped->publish(std::move(msg_twist_stamped));
+        } else {
+          publisher_twist->publish(std::move(msg_twist));
+        }
       }
 
       no_motion_count = 0;
@@ -327,7 +352,9 @@ void Spacenav::poll_spacenav()
       msg_joystick->axes[4] = normed_wy;
       msg_joystick->axes[5] = normed_wz;
       msg_joystick->buttons = joystick_buttons;
-      publisher_joy->publish(std::move(msg_joystick));
+      if (publish_joy) {
+        publisher_joy->publish(std::move(msg_joystick));
+      }
     }
   }
 }

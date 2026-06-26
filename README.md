@@ -17,6 +17,7 @@ Can be used **standalone** or as a **git submodule** inside an existing workspac
 - Real-time axis bar charts (linear + angular)
 - Named button panel laid out like the physical SpaceMouse Pro (15 buttons)
 - Raw joystick value readout
+- Per-topic publish switches (ROS parameter, dashboard checkbox, or HTTP API)
 - Configurable via launch arguments or YAML
 
 ## Prerequisites
@@ -149,6 +150,8 @@ message. `curr_pose` is the running accumulation of `delta_pose`.
 | `input_topic` | `spacenav/joy` | Source axes topic |
 | `pose_frame_id` | `spacenav_origin` | `header.frame_id` of the poses |
 | `publish_tf` | `false` | Also broadcast `curr_pose` on TF |
+| `publish_curr_pose` | `true` | Publish `spacenav/curr_pose` ([toggle](#toggling-topic-publishing)) |
+| `publish_delta_pose` | `true` | Publish `spacenav/delta_pose` ([toggle](#toggling-topic-publishing)) |
 
 #### ROS API examples
 
@@ -238,6 +241,50 @@ The dashboard's **Current Pose** panel mirrors all of this: the **Control** card
 has editable `x/y/z` + `roll/pitch/yaw` offset fields with **Set Offset** / **Set
 Identity** buttons (which publish to `spacenav/set_pose`) and live speed sliders
 (which call `ros2 param set` under the hood).
+
+### Toggling topic publishing
+
+Each topic can be switched **on or off** independently — handy to cut bus traffic
+or isolate a signal. Every topic is gated by a boolean parameter on the node that
+publishes it; **all default to `true`**, so behaviour is unchanged until you flip
+one:
+
+| Topic                 | Parameter            | Node            |
+|-----------------------|----------------------|-----------------|
+| `spacenav/twist`      | `publish_twist`      | `spacenav_node` |
+| `spacenav/offset`     | `publish_offset`     | `spacenav_node` |
+| `spacenav/rot_offset` | `publish_rot_offset` | `spacenav_node` |
+| `spacenav/joy`        | `publish_joy`        | `spacenav_node` |
+| `spacenav/curr_pose`  | `publish_curr_pose`  | `pose_node`     |
+| `spacenav/delta_pose` | `publish_delta_pose` | `pose_node`     |
+
+There are three equivalent ways to flip a switch:
+
+**1. ROS parameter** (live, no restart):
+
+```bash
+ros2 param set /spacenav_node publish_twist false     # stop spacenav/twist
+ros2 param set /pose_node     publish_curr_pose false  # stop spacenav/curr_pose
+ros2 param set /spacenav_node publish_twist true       # resume it
+```
+
+**2. Dashboard checkbox** — the topic-rate list (bottom-left of the 3D canvas)
+has a checkbox before each topic; unchecking it stops that topic.
+
+**3. Dashboard HTTP API** — `POST /publish` with a `topic` and an `enabled` flag:
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"topic": "spacenav/joy", "enabled": false}' \
+  http://localhost:8080/publish
+```
+
+All three stay in sync: the dashboard reads the live parameter values back, so a
+change made with `ros2 param set` shows up in the checkboxes, and vice versa.
+
+> **Note:** The four `publish_*` switches live in the bundled `spacenav` driver,
+> so rebuild and relaunch it (`colcon build --packages-select spacenav`) if you
+> are upgrading from an older checkout.
 
 ## Buttons (SpaceMouse Pro)
 

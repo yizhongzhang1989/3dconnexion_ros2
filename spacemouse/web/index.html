@@ -87,7 +87,9 @@
     color: var(--muted); margin-top: 5px;
   }
   .canvas-overlay .ov-h:first-child { margin-top: 0; }
-  .hz-row { display: flex; justify-content: space-between; gap: 14px; }
+  .hz-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .hz-left { display: flex; align-items: center; gap: 6px; pointer-events: auto; cursor: pointer; }
+  .hz-cb { width: 12px; height: 12px; margin: 0; accent-color: var(--blue); cursor: pointer; flex-shrink: 0; }
   .hz-row .t { color: rgba(255,255,255,0.6); }
   .hz-row .v { color: var(--green); }
   .hz-row.stale .v { color: var(--muted); }
@@ -302,17 +304,49 @@ function updateDevice(d) {
   }
 }
 
-// Topic rates overlaid on the canvas (bottom-left); stale streams greyed out.
+// Topic rates + per-topic publish checkboxes overlaid on the canvas
+// (bottom-left); stale streams greyed out.
 const hzInfo = document.getElementById('hz-overlay');
+const hzRows = {};
+function buildHzRows(topics) {
+  hzInfo.innerHTML = '';
+  for (const t of topics) {
+    const row = document.createElement('div');
+    row.className = 'hz-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'hz-cb'; cb.checked = true;
+    cb.addEventListener('change', () => {
+      fetch('/publish', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: t, enabled: cb.checked }),
+      }).catch(() => {});
+    });
+    const left = document.createElement('label');
+    left.className = 'hz-left';
+    left.title = 'publish ' + t;
+    const nm = document.createElement('span');
+    nm.className = 't'; nm.textContent = t.replace('spacenav/', '');
+    left.append(cb, nm);
+    const vv = document.createElement('span');
+    vv.className = 'v'; vv.textContent = '0.0 Hz';
+    row.append(left, vv);
+    hzInfo.appendChild(row);
+    hzRows[t] = { row, val: vv, cb, last: null };
+  }
+}
 function updateHz(d) {
-  if (!d || !d.hz) { hzInfo.innerHTML = '&mdash;'; return; }
-  hzInfo.innerHTML = Object.entries(d.hz).map(([t, hz]) => {
-    const stale = !(hz > 0);
-    const name = t.replace('spacenav/', '');
-    return '<div class="hz-row' + (stale ? ' stale' : '') + '">' +
-           '<span class="t">' + name + '</span>' +
-           '<span class="v">' + hz.toFixed(1) + ' Hz</span></div>';
-  }).join('');
+  if (!d || !d.hz) return;
+  if (!Object.keys(hzRows).length) buildHzRows(Object.keys(d.hz));
+  const ps = d.publish_state || {};
+  for (const t in hzRows) {
+    const r = hzRows[t];
+    const hz = d.hz[t];
+    if (hz != null) {
+      r.val.textContent = hz.toFixed(1) + ' Hz';
+      r.row.classList.toggle('stale', !(hz > 0));
+    }
+    if (t in ps && ps[t] !== r.last) { r.cb.checked = ps[t]; r.last = ps[t]; }
+  }
 }
 
 // ─── Axis bars setup ──────────────────────────────────────────

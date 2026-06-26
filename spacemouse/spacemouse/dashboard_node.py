@@ -65,6 +65,16 @@ class _HzTracker:
 
 
 class DashboardNode(Node):
+    # Topic -> (publishing node, bool parameter that gates it).
+    _PUBLISH_TOPICS = {
+        'spacenav/twist': ('spacenav', 'publish_twist'),
+        'spacenav/offset': ('spacenav', 'publish_offset'),
+        'spacenav/rot_offset': ('spacenav', 'publish_rot_offset'),
+        'spacenav/joy': ('spacenav', 'publish_joy'),
+        'spacenav/curr_pose': ('pose', 'publish_curr_pose'),
+        'spacenav/delta_pose': ('pose', 'publish_delta_pose'),
+    }
+
     def __init__(self):
         super().__init__('dashboard_node')
 
@@ -74,6 +84,10 @@ class DashboardNode(Node):
         self.declare_parameter('pose_node_name', 'pose_node')
         self._pose_node_name = str(
             self.get_parameter('pose_node_name').value)
+
+        self.declare_parameter('spacenav_node_name', 'spacenav_node')
+        self._spacenav_node_name = str(
+            self.get_parameter('spacenav_node_name').value)
 
         self._web_dir = os.path.join(
             get_package_share_directory('spacemouse'), 'web'
@@ -101,12 +115,15 @@ class DashboardNode(Node):
             'max_rot_speed': None,
             'publish_frequency': None,
         }
+        # Per-topic publish on/off state (mirrors the nodes' publish_* params).
+        self._publish_state = {t: True for t in self._PUBLISH_TOPICS}
 
         # Pending UI commands; flushed to ROS by a timer on the executor thread
         # so the HTTP handler threads never touch ROS directly.
         self._cmd_lock = threading.Lock()
         self._pending_set_pose = None
         self._pending_params = None
+        self._pending_publish = {}
 
         # Frequency trackers
         self._hz = {
@@ -135,10 +152,15 @@ class DashboardNode(Node):
             SetParameters, f'{self._pose_node_name}/set_parameters')
         self._get_param_cli = self.create_client(
             GetParameters, f'{self._pose_node_name}/get_parameters')
+        self._set_param_cli_sn = self.create_client(
+            SetParameters, f'{self._spacenav_node_name}/set_parameters')
+        self._get_param_cli_sn = self.create_client(
+            GetParameters, f'{self._spacenav_node_name}/get_parameters')
 
         # Command bridge + periodic parameter refresh.
         self.create_timer(0.05, self._flush_commands)
         self.create_timer(1.0, self._refresh_pose_params)
+        self.create_timer(1.0, self._refresh_publish_state)
 
         # Start HTTP server
         self._start_http_server()
@@ -277,16 +299,33 @@ class DashboardNode(Node):
             self._pending_params = updates
         return True, None
 
+    def request_publish(self, payload):
+        topic = payload.get('topic')
+        if topic not in self._PUBLISH_TOPICS:
+            return False, f'unknown topic: {topic}'
+        if 'enabled' not in payload:
+            return False, 'missing "enabled"'
+        enabled = bool(payload['enabled'])
+        with self._cmd_lock:
+            self._pending_publish[topic] = enabled
+        with self.data_lock:
+            self._publish_state[topic] = enabled
+        return True, None
+
     def _flush_commands(self):
         with self._cmd_lock:
             set_pose = self._pending_set_pose
             self._pending_set_pose = None
             params = self._pending_params
             self._pending_params = None
+            publish = self._pending_publish
+            self._pending_publish = {}
         if set_pose is not None:
             self._publish_set_pose(set_pose)
         if params is not None:
             self._apply_params(params)
+        if publish:
+            self._apply_publish(publish)
 
     def _publish_set_pose(self, req):
         kind, data = req
@@ -361,6 +400,68 @@ class DashboardNode(Node):
                         self._pose_params[name] = float(pv.integer_value)
         future.add_done_callback(_done)
 
+    def _apply_publish(self, updates):
+        clients = {'pose': self._set_param_cli,
+                   'spacenav': self._set_param_cli_sn}
+        by_node = {'pose': [], 'spacenav': []}
+        for topic, enabled in updates.items():
+            node_kind, param = self._PUBLISH_TOPICS[topic]
+            by_node[node_kind].append((param, bool(enabled)))
+        for node_kind, items in by_node.items():
+            if not items:
+                continue
+            cli = clients[node_kind]
+            if not cli.service_is_ready():
+                self.get_logger().warn(
+                    f'{node_kind} set_parameters unavailable; '
+                    'cannot toggle publishing')
+                continue
+            req = SetParameters.Request()
+            for param, enabled in items:
+                pmsg = ParameterMsg()
+                pmsg.name = param
+                pmsg.value.type = ParameterType.PARAMETER_BOOL
+                pmsg.value.bool_value = enabled
+                req.parameters.append(pmsg)
+
+            def _done(fut):
+                try:
+                    fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    self.get_logger().warn(f'publish toggle failed: {exc}')
+            cli.call_async(req).add_done_callback(_done)
+
+    def _refresh_publish_state(self):
+        groups = {
+            'pose': (self._get_param_cli,
+                     ['publish_curr_pose', 'publish_delta_pose']),
+            'spacenav': (self._get_param_cli_sn,
+                         ['publish_twist', 'publish_offset',
+                          'publish_rot_offset', 'publish_joy']),
+        }
+        for node_kind, (cli, names) in groups.items():
+            if not cli.service_is_ready():
+                continue
+            rev = {p: t for t, (nk, p) in self._PUBLISH_TOPICS.items()
+                   if nk == node_kind}
+            req = GetParameters.Request()
+            req.names = names
+
+            def _done(fut, names=names, rev=rev):
+                try:
+                    resp = fut.result()
+                except Exception:  # noqa: BLE001
+                    return
+                values = getattr(resp, 'values', None)
+                if not values:
+                    return
+                with self.data_lock:
+                    for name, pv in zip(names, values):
+                        if (pv.type == ParameterType.PARAMETER_BOOL
+                                and name in rev):
+                            self._publish_state[rev[name]] = pv.bool_value
+            cli.call_async(req).add_done_callback(_done)
+
     def _start_http_server(self):
         node_ref = self
         web_dir = self._web_dir
@@ -376,6 +477,7 @@ class DashboardNode(Node):
                     with node_ref.data_lock:
                         resp = dict(node_ref.data)
                         resp['pose_params'] = dict(node_ref._pose_params)
+                        resp['publish_state'] = dict(node_ref._publish_state)
                     resp['hz'] = {t: tr.hz for t, tr in node_ref._hz.items()}
                     resp['age'] = {t: tr.age for t, tr in node_ref._hz.items()}
                     resp['device'] = node_ref.device_status()
@@ -445,6 +547,8 @@ class DashboardNode(Node):
                     ok, err = node_ref.request_set_pose(payload)
                 elif self.path == '/params':
                     ok, err = node_ref.request_params(payload)
+                elif self.path == '/publish':
+                    ok, err = node_ref.request_publish(payload)
                 else:
                     self.send_error(404)
                     return
