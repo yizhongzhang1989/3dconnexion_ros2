@@ -70,28 +70,24 @@
     font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px;
     color: var(--muted); margin-bottom: 10px; flex-shrink: 0;
   }
-  /* Left column — current-pose 3D canvas + basic info */
+  /* Left column — current-pose 3D canvas fills the card; data overlays the canvas */
   .canvas-col { min-height: 0; }
   #pose-container { flex: 1; width: 100%; min-height: 0; position: relative; border-radius: 6px; overflow: hidden; }
-  #pose-hud {
-    position: absolute; top: 8px; left: 8px;
-    font-size: 0.72rem; font-family: monospace; line-height: 1.5;
-    color: rgba(255,255,255,0.85);
-    background: rgba(10,16,30,0.55); border-radius: 6px;
-    padding: 6px 9px; pointer-events: none;
+  .canvas-overlay {
+    position: absolute; bottom: 8px;
+    font-size: 0.7rem; font-family: monospace; line-height: 1.55;
+    color: rgba(255,255,255,0.82);
+    background: rgba(10,16,30,0.6); border-radius: 6px;
+    padding: 6px 9px; pointer-events: none; white-space: nowrap;
   }
-  #pose-hud b { color: var(--blue); font-weight: 600; }
-  .info-strip {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
-    margin-top: 12px; flex-shrink: 0;
-    border-top: 1px solid var(--accent); padding-top: 10px;
+  .canvas-overlay.bl { left: 8px; }
+  .canvas-overlay.br { right: 8px; text-align: right; }
+  .canvas-overlay .ov-h {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); margin-top: 5px;
   }
-  .info-block h3 {
-    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px;
-    color: var(--muted); margin-bottom: 6px;
-  }
-  #hz-info, #pose-readout { font-size: 0.72rem; font-family: monospace; color: rgba(255,255,255,0.78); line-height: 1.65; }
-  .hz-row { display: flex; justify-content: space-between; gap: 12px; }
+  .canvas-overlay .ov-h:first-child { margin-top: 0; }
+  .hz-row { display: flex; justify-content: space-between; gap: 14px; }
   .hz-row .t { color: rgba(255,255,255,0.6); }
   .hz-row .v { color: var(--green); }
   .hz-row.stale .v { color: var(--muted); }
@@ -176,17 +172,8 @@
   <section class="card canvas-col">
     <h2>Current Pose &mdash; spacenav/curr_pose</h2>
     <div id="pose-container">
-      <div id="pose-hud">curr_pose: (no data)</div>
-    </div>
-    <div class="info-strip">
-      <div class="info-block">
-        <h3>Topic rates</h3>
-        <div id="hz-info">&mdash;</div>
-      </div>
-      <div class="info-block">
-        <h3>Current pose</h3>
-        <div id="pose-readout">curr_pose: (no data)</div>
-      </div>
+      <div id="hz-overlay" class="canvas-overlay bl">&mdash;</div>
+      <div id="pose-overlay" class="canvas-overlay br">curr_pose: (no data)</div>
     </div>
   </section>
   <!-- RIGHT — control panel: tilt preview / axes / buttons / control -->
@@ -298,8 +285,8 @@ function updateDevice(d) {
   }
 }
 
-// Topic rates for the left info strip; stale streams render greyed out.
-const hzInfo = document.getElementById('hz-info');
+// Topic rates overlaid on the canvas (bottom-left); stale streams greyed out.
+const hzInfo = document.getElementById('hz-overlay');
 function updateHz(d) {
   if (!d || !d.hz) { hzInfo.innerHTML = '&mdash;'; return; }
   hzInfo.innerHTML = Object.entries(d.hz).map(([t, hz]) => {
@@ -411,14 +398,15 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 
 // Build a self-contained scene (camera, lights, grid, controls) in a container.
-function makeScene(container) {
+function makeScene(container, camDist = 7) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x16213e);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
   camera.up.set(0, 0, 1); // Z up
-  const camDist = 7, tilt = 30 * Math.PI / 180;
-  camera.position.set(-camDist * Math.cos(tilt), 1.5, camDist * Math.sin(tilt));
+  const tilt = 30 * Math.PI / 180;
+  camera.position.set(
+    -camDist * Math.cos(tilt), camDist * (1.5 / 7), camDist * Math.sin(tilt));
   camera.lookAt(0, 0, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -462,9 +450,10 @@ function makeScene(container) {
 }
 
 // Add a cube + axis arrows, returned as a group so callers can pose it.
-function makeCube(scene) {
+// zScale flattens the box along its local Z (e.g. 0.2 = puck-like slab).
+function makeCube(scene, zScale = 1) {
   const group = new THREE.Group(); scene.add(group);
-  const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+  const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6 * zScale);
   const materials = [
     new THREE.MeshPhysicalMaterial({ color: 0xe94560, metalness: 0.2, roughness: 0.4 }),
     new THREE.MeshPhysicalMaterial({ color: 0xc73a52, metalness: 0.2, roughness: 0.4 }),
@@ -490,8 +479,8 @@ function makeCube(scene) {
 
 // Viewer 1 — raw input preview: the cube tilts/shifts proportionally to the
 // current twist (no integration), easing back to neutral when input stops.
-const rawViewer = makeScene(document.getElementById('three-container'));
-const rawCube = makeCube(rawViewer.scene);
+const rawViewer = makeScene(document.getElementById('three-container'), 4.5);
+const rawCube = makeCube(rawViewer.scene, 0.2);
 const SMOOTH = 0.2;       // easing toward the target each frame
 const rawTargetQuat = new THREE.Quaternion();
 const rawTargetPos = new THREE.Vector3();
@@ -501,21 +490,25 @@ const poseViewer = makeScene(document.getElementById('pose-container'));
 const poseCube = makeCube(poseViewer.scene);
 const poseQuat = new THREE.Quaternion();
 
-// ─── Current Pose panel controls ─────────────────────────────
+// ─── Pose overlays on the canvas (bottom-right): delta + current pose ──
 function updatePoseReadout(d) {
-  const el = document.getElementById('pose-readout');
-  const hud = document.getElementById('pose-hud');
+  const el = document.getElementById('pose-overlay');
   const cp = d && d.curr_pose;
-  if (!cp) {
-    el.textContent = 'curr_pose: (no data)';
-    hud.textContent = 'curr_pose: (no data)';
-    return;
+  const dp = d && d.delta_pose;
+  if (!cp) { el.textContent = 'curr_pose: (no data)'; return; }
+  const fp = (p, n) => `[${p.px.toFixed(n)}, ${p.py.toFixed(n)}, ${p.pz.toFixed(n)}]`;
+  const fq = (p, n) =>
+    `[${p.qx.toFixed(n)}, ${p.qy.toFixed(n)}, ${p.qz.toFixed(n)}, ${p.qw.toFixed(n)}]`;
+  let html = '';
+  if (dp) {
+    html += '<div class="ov-h">delta_pose</div>' +
+            `<div>pos&nbsp; ${fp(dp, 6)}</div>` +
+            `<div>quat ${fq(dp, 6)}</div>`;
   }
-  const pos = `[${cp.px.toFixed(3)}, ${cp.py.toFixed(3)}, ${cp.pz.toFixed(3)}]`;
-  hud.innerHTML = `<b>pos</b> ${pos}`;
-  el.innerHTML =
-    `pos&nbsp; ${pos}<br>` +
-    `quat [${cp.qx.toFixed(3)}, ${cp.qy.toFixed(3)}, ${cp.qz.toFixed(3)}, ${cp.qw.toFixed(3)}]`;
+  html += '<div class="ov-h">current pose</div>' +
+          `<div>pos&nbsp; ${fp(cp, 3)}</div>` +
+          `<div>quat ${fq(cp, 3)}</div>`;
+  el.innerHTML = html;
 }
 
 async function postJSON(path, body) {
@@ -573,7 +566,8 @@ function maybeInitParams(d) {
     (twist.ax || 0) * rotGain,
     (twist.ay || 0) * rotGain,
     (twist.az || 0) * rotGain, 'XYZ'));
-  rawCube.cube.quaternion.slerp(rawTargetQuat, SMOOTH);
+  // Rotate the whole group so the coordinate frame (arrows) turns with the cube.
+  rawCube.group.quaternion.slerp(rawTargetQuat, SMOOTH);
   rawTargetPos.set(
     (twist.lx || 0) * transGain,
     (twist.ly || 0) * transGain,
