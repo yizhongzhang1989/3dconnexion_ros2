@@ -285,7 +285,8 @@ async function pollData() {
     setDevice('unknown', 'no server');
   }
 }
-setInterval(pollData, 33);
+// Skip polling when the tab is hidden — no UI to update, so don't burn CPU/net.
+setInterval(() => { if (!document.hidden) pollData(); }, 33);
 pollData();
 
 // Device status. The driver streams ZERO twist/joy even with no SpaceMouse
@@ -473,10 +474,11 @@ function makeScene(container, camDist = 7, showAxes = true) {
     -camDist * Math.cos(tilt), camDist * (1.5 / 7), camDist * Math.sin(tilt));
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Rough visualization only: low-power GPU, pixel ratio 1 and shadows off keep
+  // two canvases from contending with video/other tabs (antialias kept on).
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
+  renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = false;
   container.appendChild(renderer.domElement);
 
   const controls = new TrackballControls(camera, renderer.domElement);
@@ -519,12 +521,12 @@ function makeCube(scene, zScale = 1) {
   const group = new THREE.Group(); scene.add(group);
   const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6 * zScale);
   const materials = [
-    new THREE.MeshPhysicalMaterial({ color: 0xe94560, metalness: 0.2, roughness: 0.4 }),
-    new THREE.MeshPhysicalMaterial({ color: 0xc73a52, metalness: 0.2, roughness: 0.4 }),
-    new THREE.MeshPhysicalMaterial({ color: 0x4ecca3, metalness: 0.2, roughness: 0.4 }),
-    new THREE.MeshPhysicalMaterial({ color: 0x3db88e, metalness: 0.2, roughness: 0.4 }),
-    new THREE.MeshPhysicalMaterial({ color: 0x00b4d8, metalness: 0.2, roughness: 0.4 }),
-    new THREE.MeshPhysicalMaterial({ color: 0x0096b5, metalness: 0.2, roughness: 0.4 }),
+    new THREE.MeshLambertMaterial({ color: 0xe94560 }),
+    new THREE.MeshLambertMaterial({ color: 0xc73a52 }),
+    new THREE.MeshLambertMaterial({ color: 0x4ecca3 }),
+    new THREE.MeshLambertMaterial({ color: 0x3db88e }),
+    new THREE.MeshLambertMaterial({ color: 0x00b4d8 }),
+    new THREE.MeshLambertMaterial({ color: 0x0096b5 }),
   ];
   const cube = new THREE.Mesh(geo, materials);
   cube.castShadow = true; cube.receiveShadow = true;
@@ -562,8 +564,7 @@ function addGlobalFrame(scene, len = 1.9) {
 function axisCylinder(dir, color, len) {
   const g = new THREE.Group();
   const shaftLen = len * 0.8, headLen = len * 0.2;
-  const mat = new THREE.MeshPhysicalMaterial({
-    color, metalness: 0.2, roughness: 0.45 });
+  const mat = new THREE.MeshLambertMaterial({ color });
   const shaft = new THREE.Mesh(
     new THREE.CylinderGeometry(0.06, 0.06, shaftLen, 20), mat);
   shaft.position.y = shaftLen / 2; shaft.castShadow = true;
@@ -687,8 +688,15 @@ function syncParams(d) {
 }
 
 // ─── Render + animation loop ─────────────────────────────────
-(function animate() {
+let _lastFrame = 0;
+const _FRAME_MS = 1000 / 30;       // cap render to 30 fps to share the GPU
+(function animate(ts) {
   requestAnimationFrame(animate);
+  // Pause when tab hidden, and throttle to ~30 fps so two WebGL canvases don't
+  // hog the GPU away from video/other tabs.
+  if (document.hidden) return;
+  if (ts - _lastFrame < _FRAME_MS) return;
+  _lastFrame = ts;
   const d = window.latestData;
   const twist = d ? d.twist : { lx: 0, ly: 0, lz: 0, ax: 0, ay: 0, az: 0 };
   const dt = 1 / 30;
