@@ -272,18 +272,22 @@ class PoseNode(Node):
         rotvec = [w[i] * max_rot * dt for i in range(3)]
         q_delta = rotvec_to_quat(rotvec[0], rotvec[1], rotvec[2])
 
-        # Accumulate into curr_pose.
-        if frame == 'body':
-            q_new = quat_normalize(quat_mul(q, q_delta))
-            dtw = quat_rotate_vec(q, d_trans)
-            p_new = [p[i] + dtw[i] for i in range(3)]
-        else:  # 'world'
-            q_new = quat_normalize(quat_mul(q_delta, q))
-            p_new = [p[i] + d_trans[i] for i in range(3)]
-
-        with self._lock:
-            self._p = p_new
-            self._q = q_new
+        # Accumulate into curr_pose ONLY while publishing is enabled; when
+        # curr_pose is disabled the underlying pose FREEZES (no drift) and only
+        # resumes on re-enable or an explicit set_pose.
+        if pub_curr:
+            if frame == 'body':
+                q_new = quat_normalize(quat_mul(q, q_delta))
+                dtw = quat_rotate_vec(q, d_trans)
+                p_new = [p[i] + dtw[i] for i in range(3)]
+            else:  # 'world'
+                q_new = quat_normalize(quat_mul(q_delta, q))
+                p_new = [p[i] + d_trans[i] for i in range(3)]
+            with self._lock:
+                self._p = p_new
+                self._q = q_new
+        else:
+            p_new, q_new = p, q
 
         stamp = now.to_msg()
         if pub_delta:
