@@ -40,6 +40,7 @@ setup(
     entry_points={
         'console_scripts': [
             'dashboard_node = spacemouse.dashboard_node:main',
+            'pose_node = spacemouse.pose_node:main',
         ],
     },
 )

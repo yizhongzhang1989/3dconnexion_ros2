@@ -17,8 +17,22 @@ spacenav_node:
       y: 1.0
       z: 1.0
 
+# Pose integrator parameters
+pose_node:
+  ros__parameters:
+    publish_frequency: 100.0   # Hz, output rate for curr_pose/delta_pose
+    max_trans_speed: 0.1       # m/s, translation speed at axis = 1
+    max_rot_speed: 1.0         # rad/s, rotation speed at axis = 1
+    integration_frame: world   # 'body' or 'world'
+    pose_frame_id: spacenav_origin
+    input_topic: spacenav/joy
+    deadzone: 0.0
+    input_timeout: 0.5         # s, zero input if no message within this window
+    publish_tf: false
+
 # Dashboard parameters
 dashboard_node:
   ros__parameters:
     http_port: 8080
     ws_port: 9090
+    pose_node_name: pose_node
