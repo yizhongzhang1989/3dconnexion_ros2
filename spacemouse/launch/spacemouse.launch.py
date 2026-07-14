@@ -77,7 +77,7 @@ def generate_launch_description():
         Node(
             package='spacemouse',
             executable='pose_node',
-            name='pose_node',
+            name='spacenav_pose_node',
             output='screen',
             condition=IfCondition(enable_pose),
             parameters=[{
@@ -100,13 +100,13 @@ def generate_launch_description():
         Node(
             package='spacemouse',
             executable='dashboard_node',
-            name='dashboard_node',
+            name='spacenav_dashboard_node',
             output='screen',
             condition=IfCondition(
                 PythonExpression(["'", dashboard_port, "' != ''"])),
             parameters=[{
                 'http_port': dashboard_port,
-                'pose_node_name': 'pose_node',
+                'pose_node_name': 'spacenav_pose_node',
             }],
         ),
     ])
